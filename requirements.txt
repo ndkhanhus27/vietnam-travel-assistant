@@ -8,3 +8,10 @@ pydantic-settings>=2.3
 httpx>=0.27
 mwparserfromhell>=0.6
 google-genai
+httpx
+sentence-transformers
+qdrant-client
+transformers
+sentencepiece
+rank-bm25
+sentence-transformers torch
