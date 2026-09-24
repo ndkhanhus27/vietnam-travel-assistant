@@ -14,4 +14,4 @@ qdrant-client
 transformers
 sentencepiece
 rank-bm25
-sentence-transformers torch
+torch

@@ -3,25 +3,28 @@ from __future__ import annotations
 import argparse
 
 from pipeline.rag.rag_service import (
-    RagService,
+    TravelRAGService,
 )
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Ask the Vietnam Travel RAG."
+        description=(
+            "Vietnam Travel "
+            "Hybrid RAG"
+        )
     )
 
     parser.add_argument(
         "question",
         nargs="+",
-        help="Câu hỏi cần hỏi.",
     )
 
     return parser.parse_args()
 
 
 def main() -> None:
+
     args = parse_args()
 
     question = " ".join(
@@ -29,58 +32,151 @@ def main() -> None:
     ).strip()
 
     print()
-    print("=" * 78)
-    print("VIETNAM TRAVEL RAG")
-    print("=" * 78)
+    print("=" * 90)
+    print(
+        "STEP 8 - VIETNAM TRAVEL RAG"
+    )
+    print("=" * 90)
 
     print(
         f"Question: {question}"
     )
 
-    print("=" * 78)
+    print("=" * 90)
     print()
 
-    service = RagService()
+    service = (
+        TravelRAGService()
+    )
 
-    response = service.answer(
+    result = service.answer(
         question
     )
 
+    # ============================================================
+    # ANSWER
+    # ============================================================
+
     print("ANSWER")
-    print("-" * 78)
-    print(response.answer)
+    print("-" * 90)
+
+    print(
+        result.answer
+    )
+
+    # ============================================================
+    # SOURCES
+    # ============================================================
 
     print()
     print("SOURCES")
-    print("-" * 78)
+    print("-" * 90)
 
-    if not response.sources:
-        print(
-            "Không có nguồn."
-        )
-
-        return
-
-    for source in response.sources:
-        print(
-            f"[{source.source_id}] "
-            f"{source.title}"
-        )
+    if not result.sources:
 
         print(
-            f"    score : "
-            f"{source.score:.4f}"
+            "Không có source."
+        )
+
+    else:
+
+        for source in (
+            result.sources
+        ):
+
+            print(
+                f"[{source.source_id}] "
+                f"{source.title}"
+            )
+
+            print(
+                f"    rerank : "
+                f"{source.rerank_score:.6f}"
+            )
+
+            print(
+                f"    hybrid : "
+                f"{source.hybrid_score:.6f}"
+            )
+
+            print(
+                f"    chunk  : "
+                f"{source.chunk_index}"
+            )
+
+            print(
+                f"    url    : "
+                f"{source.source_url}"
+            )
+
+    # ============================================================
+    # VALIDATION
+    # ============================================================
+
+    print()
+    print("VALIDATION")
+    print("-" * 90)
+
+    print(
+        "Evidence valid : "
+        f"{result.evidence_validation.valid}"
+    )
+
+    if (
+        result.evidence_validation
+        .issues
+    ):
+        print(
+            "Evidence issues:"
+        )
+
+        for issue in (
+            result
+            .evidence_validation
+            .issues
+        ):
+            print(
+                f"  - {issue}"
+            )
+
+    if (
+        result.citation_validation
+        is not None
+    ):
+
+        print(
+            "Citation valid : "
+            f"{result.citation_validation.valid}"
         )
 
         print(
-            f"    chunk : "
-            f"{source.chunk_index}"
+            "Citations      : "
+            f"{result.citation_validation.citations}"
         )
 
-        print(
-            f"    url   : "
-            f"{source.source_url}"
-        )
+        if (
+            result
+            .citation_validation
+            .issues
+        ):
+
+            print(
+                "Citation issues:"
+            )
+
+            for issue in (
+                result
+                .citation_validation
+                .issues
+            ):
+                print(
+                    f"  - {issue}"
+                )
+
+    print(
+        "Needs research  : "
+        f"{result.needs_research}"
+    )
 
 
 if __name__ == "__main__":

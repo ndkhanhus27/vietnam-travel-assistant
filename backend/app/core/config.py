@@ -46,6 +46,21 @@ class Settings(BaseSettings):
     rag_rrf_dense_weight: float = 1.0
     rag_rrf_bm25_weight: float = 1.0
     rag_rrf_entity_weight: float = 0.5
+    
+     # ============================================================
+    # RERANKER
+    # ============================================================
+    rag_rerank_enabled: bool = True
+    rag_reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    rag_rerank_candidates: int = 20
+    rag_rerank_limit: int = 6
+    rag_reranker_batch_size: int = 8
+    rag_reranker_max_length: int = 512
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
 
 
 settings = Settings()
