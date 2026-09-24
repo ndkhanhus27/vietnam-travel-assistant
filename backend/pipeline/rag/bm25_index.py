@@ -30,11 +30,7 @@ def normalize_text(
     text: str,
 ) -> str:
     text = text or ""
-
-    text = unicodedata.normalize(
-        "NFC",
-        text,
-    )
+    text = unicodedata.normalize("NFC", text)
 
     return text.casefold().strip()
 
@@ -64,23 +60,14 @@ def tokenize(
 
 class QdrantBm25Index:
     def __init__(self) -> None:
-
         self.client = QdrantClient(
             url=settings.qdrant_url,
             timeout=60,
         )
+        self.collection_name = settings.qdrant_collection
 
-        self.collection_name = (
-            settings.qdrant_collection
-        )
-
-        self.documents: list[
-            LexicalChunk
-        ] = []
-
-        self.corpus_tokens: list[
-            list[str]
-        ] = []
+        self.documents: list[LexicalChunk] = []
+        self.corpus_tokens: list[list[str]] = []
 
         self.bm25: BM25Okapi | None = None
 
@@ -91,49 +78,29 @@ class QdrantBm25Index:
     # ============================================================
 
     def _load(self) -> None:
-
         offset = None
 
         while True:
-
-            records, next_offset = (
-                self.client.scroll(
-                    collection_name=(
-                        self.collection_name
-                    ),
-                    offset=offset,
-                    limit=256,
-                    with_payload=True,
-                    with_vectors=False,
-                )
+            records, next_offset = self.client.scroll(
+                collection_name=self.collection_name,
+                offset=offset,
+                limit=256,
+                with_payload=True,
+                with_vectors=False,
             )
 
             for record in records:
-
-                payload = (
-                    record.payload or {}
-                )
-
-                lexical_text = (
-                    self._build_lexical_text(
-                        payload
-                    )
-                )
+                payload = record.payload or {}
+                lexical_text = self._build_lexical_text(payload)
 
                 self.documents.append(
                     LexicalChunk(
-                        point_id=str(
-                            record.id
-                        ),
+                        point_id=str(record.id),
                         payload=payload,
                     )
                 )
 
-                self.corpus_tokens.append(
-                    tokenize(
-                        lexical_text
-                    )
-                )
+                self.corpus_tokens.append(tokenize(lexical_text))
 
             if next_offset is None:
                 break
@@ -146,14 +113,9 @@ class QdrantBm25Index:
                 "chunk để tạo BM25 index."
             )
 
-        self.bm25 = BM25Okapi(
-            self.corpus_tokens
-        )
+        self.bm25 = BM25Okapi(self.corpus_tokens)
 
-        print(
-            "[bm25] loaded "
-            f"{len(self.documents)} chunks"
-        )
+        print(f"[bm25] loaded {len(self.documents)} chunks")
 
     # ============================================================
     # LEXICAL DOCUMENT
@@ -163,30 +125,10 @@ class QdrantBm25Index:
     def _build_lexical_text(
         payload: dict[str, Any],
     ) -> str:
-
-        title = str(
-            payload.get(
-                "title",
-                "",
-            )
-        )
-
-        content = str(
-            payload.get(
-                "content",
-                "",
-            )
-        )
-
-        entities = payload.get(
-            "entities",
-            [],
-        ) or []
-
-        primary_entities = payload.get(
-            "primary_entities",
-            [],
-        ) or []
+        title = str(payload.get("title", ""))
+        content = str(payload.get("content", ""))
+        entities = payload.get("entities", []) or []
+        primary_entities = payload.get("primary_entities", []) or []
 
         # Title + primary entity được repeat nhẹ
         # để proper noun có trọng số lexical tốt hơn.
@@ -194,18 +136,9 @@ class QdrantBm25Index:
         parts = [
             title,
             title,
-            " ".join(
-                str(x)
-                for x in primary_entities
-            ),
-            " ".join(
-                str(x)
-                for x in primary_entities
-            ),
-            " ".join(
-                str(x)
-                for x in entities
-            ),
+            " ".join(str(x) for x in primary_entities),
+            " ".join(str(x) for x in primary_entities),
+            " ".join(str(x) for x in entities),
             content,
         ]
 
@@ -225,45 +158,30 @@ class QdrantBm25Index:
         *,
         limit: int = 20,
     ) -> list[Bm25Result]:
-
         if self.bm25 is None:
             return []
 
-        query_tokens = tokenize(
-            query
-        )
+        query_tokens = tokenize(query)
 
         if not query_tokens:
             return []
 
-        scores = self.bm25.get_scores(
-            query_tokens
-        )
-
-        order = np.argsort(
-            scores
-        )[::-1]
+        scores = self.bm25.get_scores(query_tokens)
+        order = np.argsort(scores)[::-1]
 
         results: list[Bm25Result] = []
 
         for index in order:
-
-            score = float(
-                scores[index]
-            )
+            score = float(scores[index])
 
             if score <= 0:
                 continue
 
-            document = (
-                self.documents[index]
-            )
+            document = self.documents[index]
 
             results.append(
                 Bm25Result(
-                    point_id=(
-                        document.point_id
-                    ),
+                    point_id=document.point_id,
                     score=score,
                     rank=len(results) + 1,
                     payload=document.payload,
@@ -283,7 +201,6 @@ class QdrantBm25Index:
         self,
         point_id: str,
     ) -> dict[str, Any] | None:
-
         for document in self.documents:
             if document.point_id == point_id:
                 return document.payload

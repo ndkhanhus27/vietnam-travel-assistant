@@ -16,10 +16,7 @@ class TravelQdrantStore:
             url=settings.qdrant_url,
             timeout=60,
         )
-
-        self.collection_name = (
-            settings.qdrant_collection
-        )
+        self.collection_name = settings.qdrant_collection
 
     def recreate_collection(
         self,
@@ -30,82 +27,46 @@ class TravelQdrantStore:
         Chỉ dùng khi rebuild full index.
         """
 
-        if self.client.collection_exists(
-            self.collection_name
-        ):
-            print(
-                "[qdrant] deleting old "
-                "collection..."
-            )
+        if self.client.collection_exists(self.collection_name):
+            print("[qdrant] deleting old collection...")
 
             self.client.delete_collection(
-                collection_name=(
-                    self.collection_name
-                )
+                collection_name=self.collection_name
             )
 
         self.client.create_collection(
-            collection_name=(
-                self.collection_name
-            ),
-
+            collection_name=self.collection_name,
             vectors_config=VectorParams(
-                size=(
-                    settings
-                    .rag_vector_size
-                ),
-
-                distance=(
-                    Distance.COSINE
-                ),
+                size=settings.rag_vector_size,
+                distance=Distance.COSINE,
             ),
         )
 
-        print(
-            "[qdrant] collection created: "
-            f"{self.collection_name}"
-        )
+        print(f"[qdrant] collection created: {self.collection_name}")
 
     def ensure_collection(
         self,
     ) -> None:
-
-        if self.client.collection_exists(
-            self.collection_name
-        ):
+        if self.client.collection_exists(self.collection_name):
             return
 
         self.client.create_collection(
-            collection_name=(
-                self.collection_name
-            ),
-
+            collection_name=self.collection_name,
             vectors_config=VectorParams(
-                size=(
-                    settings
-                    .rag_vector_size
-                ),
-
-                distance=(
-                    Distance.COSINE
-                ),
+                size=settings.rag_vector_size,
+                distance=Distance.COSINE,
             ),
         )
 
     def upsert(
         self,
-        points: list[
-            PointStruct
-        ],
+        points: list[PointStruct],
     ) -> None:
-
         if not points:
             return
 
         self.client.upsert(
-            collection_name=(
-                self.collection_name
-            ),
+            collection_name=self.collection_name,
             points=points,
             wait=True,
         )
@@ -113,14 +74,9 @@ class TravelQdrantStore:
     def count(
         self,
     ) -> int:
-
         result = self.client.count(
-            collection_name=(
-                self.collection_name
-            ),
+            collection_name=self.collection_name,
             exact=True,
         )
 
-        return int(
-            result.count
-        )
+        return int(result.count)

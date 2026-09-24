@@ -5,17 +5,12 @@ from dataclasses import dataclass
 from google import genai
 
 from app.core.config import settings
-
 from pipeline.rag.evidence_validator import (
     CitationValidation,
     EvidenceValidation,
     EvidenceValidator,
 )
-
-from pipeline.rag.reranker import (
-    RerankedChunk,
-    TravelReranker,
-)
+from pipeline.rag.reranker import RerankedChunk, TravelReranker
 
 
 @dataclass(frozen=True)
@@ -38,25 +33,16 @@ class RagAnswer:
 
     sources: list[RagSource]
 
-    evidence_validation: (
-        EvidenceValidation
-    )
-
-    citation_validation: (
-        CitationValidation
-        | None
-    )
+    evidence_validation: EvidenceValidation
+    citation_validation: CitationValidation | None
 
     needs_research: bool
 
 
 class TravelRAGService:
     def __init__(self) -> None:
-
         if not settings.gemini_api_key:
-            raise RuntimeError(
-                "GEMINI_API_KEY chưa được cấu hình."
-            )
+            raise RuntimeError("GEMINI_API_KEY chưa được cấu hình.")
 
         # Full retrieval stack:
         #
@@ -64,18 +50,11 @@ class TravelRAGService:
         # → RRF
         # → CrossEncoder
 
-        self.retriever = (
-            TravelReranker()
-        )
-
-        self.validator = (
-            EvidenceValidator()
-        )
+        self.retriever = TravelReranker()
+        self.validator = EvidenceValidator()
 
         self.llm = genai.Client(
-            api_key=(
-                settings.gemini_api_key
-            )
+            api_key=settings.gemini_api_key
         )
 
     # ============================================================
@@ -94,39 +73,17 @@ class TravelRAGService:
         một article cực dài chiếm toàn bộ context.
         """
 
-        selected: list[
-            RerankedChunk
-        ] = []
-
-        document_counts: dict[
-            str,
-            int,
-        ] = {}
+        selected: list[RerankedChunk] = []
+        document_counts: dict[str, int] = {}
 
         for item in results:
+            current_count = document_counts.get(item.document_id, 0)
 
-            current_count = (
-                document_counts.get(
-                    item.document_id,
-                    0,
-                )
-            )
-
-            if (
-                current_count
-                >= max_per_document
-            ):
+            if current_count >= max_per_document:
                 continue
 
-            selected.append(
-                item
-            )
-
-            document_counts[
-                item.document_id
-            ] = (
-                current_count + 1
-            )
+            selected.append(item)
+            document_counts[item.document_id] = current_count + 1
 
             if len(selected) >= limit:
                 break
@@ -141,46 +98,25 @@ class TravelRAGService:
     def build_prompt(
         *,
         question: str,
-        evidence: list[
-            RerankedChunk
-        ],
+        evidence: list[RerankedChunk],
     ) -> str:
-
         blocks: list[str] = []
 
-        for index, item in enumerate(
-            evidence,
-            start=1,
-        ):
-
+        for index, item in enumerate(evidence, start=1):
             blocks.append(
                 "\n".join(
                     [
                         f"[S{index}]",
-                        (
-                            f"Tiêu đề: "
-                            f"{item.title}"
-                        ),
-                        (
-                            f"Nguồn: "
-                            f"{item.source_url}"
-                        ),
-                        (
-                            f"Chunk: "
-                            f"{item.chunk_index}"
-                        ),
+                        f"Tiêu đề: {item.title}",
+                        f"Nguồn: {item.source_url}",
+                        f"Chunk: {item.chunk_index}",
                         "",
                         item.content,
                     ]
                 )
             )
 
-        evidence_text = (
-            "\n\n"
-            "====================\n\n"
-        ).join(
-            blocks
-        )
+        evidence_text = "\n\n====================\n\n".join(blocks)
 
         return f"""
 Bạn là trợ lý du lịch Việt Nam.
@@ -250,65 +186,46 @@ Hãy trả lời câu hỏi.
         self,
         question: str,
     ) -> RagAnswer:
-
         question = question.strip()
 
         if not question:
-            raise ValueError(
-                "Question không được rỗng."
-            )
+            raise ValueError("Question không được rỗng.")
 
         # --------------------------------------------------------
         # STEP 1: Retrieval + reranking
         # --------------------------------------------------------
 
-        retrieved = (
-            self.retriever.search(
-                question,
-                limit=12,
-            )
+        retrieved = self.retriever.search(
+            question,
+            limit=12,
         )
 
         # --------------------------------------------------------
         # STEP 2: Evidence selection
         # --------------------------------------------------------
 
-        evidence = (
-            self.select_evidence(
-                retrieved,
-                limit=6,
-                max_per_document=3,
-            )
+        evidence = self.select_evidence(
+            retrieved,
+            limit=6,
+            max_per_document=3,
         )
 
         # --------------------------------------------------------
         # STEP 3: Deterministic validation
         # --------------------------------------------------------
 
-        evidence_validation = (
-            self.validator
-            .validate_evidence(
-                evidence
-            )
-        )
+        evidence_validation = self.validator.validate_evidence(evidence)
 
         if not evidence_validation.valid:
-
             return RagAnswer(
                 answer=(
                     "Kho dữ liệu hiện tại "
                     "chưa có đủ evidence "
                     "để trả lời câu hỏi này."
                 ),
-
                 sources=[],
-
-                evidence_validation=(
-                    evidence_validation
-                ),
-
+                evidence_validation=evidence_validation,
                 citation_validation=None,
-
                 needs_research=True,
             )
 
@@ -325,14 +242,9 @@ Hãy trả lời câu hỏi.
         # STEP 5: Gemini generation
         # --------------------------------------------------------
 
-        response = (
-            self.llm.models
-            .generate_content(
-                model=(
-                    settings.gemini_model
-                ),
-                contents=prompt,
-            )
+        response = self.llm.models.generate_content(
+            model=settings.gemini_model,
+            contents=prompt,
         )
 
         answer_text = (
@@ -351,43 +263,18 @@ Hãy trả lời câu hỏi.
         # STEP 6: Sources
         # --------------------------------------------------------
 
-        sources: list[
-            RagSource
-        ] = []
+        sources: list[RagSource] = []
 
-        for index, item in enumerate(
-            evidence,
-            start=1,
-        ):
+        for index, item in enumerate(evidence, start=1):
             sources.append(
                 RagSource(
-                    source_id=(
-                        f"S{index}"
-                    ),
-
-                    title=(
-                        item.title
-                    ),
-
-                    source_url=(
-                        item.source_url
-                    ),
-
-                    document_id=(
-                        item.document_id
-                    ),
-
-                    chunk_index=(
-                        item.chunk_index
-                    ),
-
-                    rerank_score=(
-                        item.rerank_score
-                    ),
-
-                    hybrid_score=(
-                        item.hybrid_score
-                    ),
+                    source_id=f"S{index}",
+                    title=item.title,
+                    source_url=item.source_url,
+                    document_id=item.document_id,
+                    chunk_index=item.chunk_index,
+                    rerank_score=item.rerank_score,
+                    hybrid_score=item.hybrid_score,
                 )
             )
 
@@ -395,28 +282,15 @@ Hãy trả lời câu hỏi.
         # STEP 7: Citation validation
         # --------------------------------------------------------
 
-        citation_validation = (
-            self.validator
-            .validate_citations(
-                answer=answer_text,
-                source_count=len(
-                    sources
-                ),
-            )
+        citation_validation = self.validator.validate_citations(
+            answer=answer_text,
+            source_count=len(sources),
         )
 
         return RagAnswer(
             answer=answer_text,
-
             sources=sources,
-
-            evidence_validation=(
-                evidence_validation
-            ),
-
-            citation_validation=(
-                citation_validation
-            ),
-
+            evidence_validation=evidence_validation,
+            citation_validation=citation_validation,
             needs_research=False,
         )

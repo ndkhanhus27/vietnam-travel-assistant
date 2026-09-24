@@ -48,21 +48,14 @@ class DenseRetriever:
         *,
         embedder: BgeM3Embedder | None = None,
     ) -> None:
-
-        self.embedder = (
-            embedder
-            if embedder is not None
-            else BgeM3Embedder()
-        )
+        self.embedder = embedder if embedder is not None else BgeM3Embedder()
 
         self.client = QdrantClient(
             url=settings.qdrant_url,
             timeout=60,
         )
 
-        self.collection_name = (
-            settings.qdrant_collection
-        )
+        self.collection_name = settings.qdrant_collection
 
     def search(
         self,
@@ -70,134 +63,53 @@ class DenseRetriever:
         *,
         limit: int = 10,
     ) -> list[RetrievedChunk]:
-
         query = query.strip()
 
         if not query:
             return []
 
         if limit <= 0:
-            raise ValueError(
-                "limit phải > 0"
-            )
+            raise ValueError("limit phải > 0")
 
         # --------------------------------------------------------
         # Query -> dense vector
         # --------------------------------------------------------
 
-        query_vector = (
-            self.embedder.encode_query(
-                query
-            )
-        )
+        query_vector = self.embedder.encode_query(query)
 
         # --------------------------------------------------------
         # Vector search
         # --------------------------------------------------------
 
-        response = (
-            self.client.query_points(
-                collection_name=(
-                    self.collection_name
-                ),
-
-                query=query_vector,
-
-                limit=limit,
-
-                with_payload=True,
-            )
+        response = self.client.query_points(
+            collection_name=self.collection_name,
+            query=query_vector,
+            limit=limit,
+            with_payload=True,
         )
 
         # --------------------------------------------------------
         # Convert Qdrant points
         # --------------------------------------------------------
 
-        results: list[
-            RetrievedChunk
-        ] = []
+        results: list[RetrievedChunk] = []
 
         for point in response.points:
-
-            payload = (
-                point.payload
-                if point.payload
-                else {}
-            )
+            payload = point.payload if point.payload else {}
 
             results.append(
                 RetrievedChunk(
-                    point_id=str(
-                        point.id
-                    ),
-
-                    score=float(
-                        point.score
-                    ),
-
-                    document_id=str(
-                        payload.get(
-                            "document_id",
-                            "",
-                        )
-                    ),
-
-                    chunk_index=int(
-                        payload.get(
-                            "chunk_index",
-                            0,
-                        )
-                    ),
-
-                    title=str(
-                        payload.get(
-                            "title",
-                            "",
-                        )
-                    ),
-
-                    content=str(
-                        payload.get(
-                            "content",
-                            "",
-                        )
-                    ),
-
-                    source_name=str(
-                        payload.get(
-                            "source_name",
-                            "",
-                        )
-                    ),
-
-                    source_url=str(
-                        payload.get(
-                            "source_url",
-                            "",
-                        )
-                    ),
-
-                    entities=list(
-                        payload.get(
-                            "entities",
-                            [],
-                        )
-                    ),
-
-                    entity_types=list(
-                        payload.get(
-                            "entity_types",
-                            [],
-                        )
-                    ),
-
-                    primary_entities=list(
-                        payload.get(
-                            "primary_entities",
-                            [],
-                        )
-                    ),
-
+                    point_id=str(point.id),
+                    score=float(point.score),
+                    document_id=str(payload.get("document_id", "")),
+                    chunk_index=int(payload.get("chunk_index", 0)),
+                    title=str(payload.get("title", "")),
+                    content=str(payload.get("content", "")),
+                    source_name=str(payload.get("source_name", "")),
+                    source_url=str(payload.get("source_url", "")),
+                    entities=list(payload.get("entities", [])),
+                    entity_types=list(payload.get("entity_types", [])),
+                    primary_entities=list(payload.get("primary_entities", [])),
                     payload=payload,
                 )
             )

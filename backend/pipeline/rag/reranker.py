@@ -108,10 +108,7 @@ class TravelReranker:
         if limit is None:
             limit = settings.rag_rerank_limit
 
-        pairs = [
-            (query, self._build_passage(item))
-            for item in candidates
-        ]
+        pairs = [(query, self._build_passage(item)) for item in candidates]
 
         scores = self.model.predict(
             pairs,
@@ -126,7 +123,10 @@ class TravelReranker:
             raise RuntimeError("Số reranker scores không khớp số candidates.")
 
         scored = []
-        for hybrid_rank, (candidate, rerank_score) in enumerate(zip(candidates, scores), start=1):
+        for hybrid_rank, (candidate, rerank_score) in enumerate(
+            zip(candidates, scores),
+            start=1,
+        ):
             scored.append(
                 (
                     float(rerank_score),
@@ -143,30 +143,21 @@ class TravelReranker:
             results.append(
                 RerankedChunk(
                     point_id=candidate.point_id,
-
                     rerank_rank=len(results) + 1,
                     rerank_score=rerank_score,
-
                     hybrid_rank=hybrid_rank,
                     hybrid_score=candidate.hybrid_score,
-
                     dense_rank=candidate.dense_rank,
                     dense_score=candidate.dense_score,
-
                     bm25_rank=candidate.bm25_rank,
                     bm25_score=candidate.bm25_score,
-
                     entity_rank=candidate.entity_rank,
-
                     document_id=candidate.document_id,
                     chunk_index=candidate.chunk_index,
-
                     title=candidate.title,
                     content=candidate.content,
-
                     source_name=candidate.source_name,
                     source_url=candidate.source_url,
-
                     entities=candidate.entities,
                     entity_types=candidate.entity_types,
                     primary_entities=candidate.primary_entities,

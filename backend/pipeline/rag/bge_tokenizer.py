@@ -8,11 +8,7 @@ MODEL_NAME = "BAAI/bge-m3"
 
 class BgeM3Tokenizer:
     def __init__(self) -> None:
-        self.tokenizer = (
-            AutoTokenizer.from_pretrained(
-                MODEL_NAME
-            )
-        )
+        self.tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 
     def encode(
         self,
@@ -36,6 +32,4 @@ class BgeM3Tokenizer:
         self,
         text: str,
     ) -> int:
-        return len(
-            self.encode(text)
-        )
+        return len(self.encode(text))

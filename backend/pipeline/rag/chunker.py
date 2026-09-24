@@ -3,9 +3,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-from pipeline.rag.bge_tokenizer import (
-    BgeM3Tokenizer,
-)
+from pipeline.rag.bge_tokenizer import BgeM3Tokenizer
 
 
 @dataclass(frozen=True)
@@ -19,28 +17,10 @@ def normalize_text(
     value: str,
 ) -> str:
     value = value or ""
-
-    value = value.replace(
-        "\r\n",
-        "\n",
-    )
-
-    value = value.replace(
-        "\r",
-        "\n",
-    )
-
-    value = re.sub(
-        r"[ \t]+",
-        " ",
-        value,
-    )
-
-    value = re.sub(
-        r"\n{3,}",
-        "\n\n",
-        value,
-    )
+    value = value.replace("\r\n", "\n")
+    value = value.replace("\r", "\n")
+    value = re.sub(r"[ \t]+", " ", value)
+    value = re.sub(r"\n{3,}", "\n\n", value)
 
     return value.strip()
 
@@ -48,9 +28,7 @@ def normalize_text(
 def split_paragraphs(
     content: str,
 ) -> list[str]:
-    content = normalize_text(
-        content
-    )
+    content = normalize_text(content)
 
     if not content:
         return []
@@ -81,9 +59,7 @@ def split_large_text(
     đã lớn hơn chunk_size.
     """
 
-    token_ids = tokenizer.encode(
-        text
-    )
+    token_ids = tokenizer.encode(text)
 
     if len(token_ids) <= max_tokens:
         return [text]
@@ -98,18 +74,11 @@ def split_large_text(
             len(token_ids),
         )
 
-        part_ids = token_ids[
-            start:end
-        ]
-
-        part = tokenizer.decode(
-            part_ids
-        )
+        part_ids = token_ids[start:end]
+        part = tokenizer.decode(part_ids)
 
         if part:
-            result.append(
-                part
-            )
+            result.append(part)
 
         if end >= len(token_ids):
             break
@@ -131,16 +100,12 @@ def get_overlap_text(
     if overlap <= 0:
         return ""
 
-    token_ids = tokenizer.encode(
-        text
-    )
+    token_ids = tokenizer.encode(text)
 
     if not token_ids:
         return ""
 
-    return tokenizer.decode(
-        token_ids[-overlap:]
-    )
+    return tokenizer.decode(token_ids[-overlap:])
 
 
 def chunk_document(
@@ -150,25 +115,16 @@ def chunk_document(
     chunk_size: int = 512,
     overlap: int = 64,
 ) -> list[TextChunk]:
-
     if chunk_size <= 0:
-        raise ValueError(
-            "chunk_size phải > 0"
-        )
+        raise ValueError("chunk_size phải > 0")
 
     if overlap < 0:
-        raise ValueError(
-            "overlap phải >= 0"
-        )
+        raise ValueError("overlap phải >= 0")
 
     if overlap >= chunk_size:
-        raise ValueError(
-            "overlap phải nhỏ hơn chunk_size"
-        )
+        raise ValueError("overlap phải nhỏ hơn chunk_size")
 
-    paragraphs = split_paragraphs(
-        content
-    )
+    paragraphs = split_paragraphs(content)
 
     if not paragraphs:
         return []
@@ -180,17 +136,10 @@ def chunk_document(
     units: list[str] = []
 
     for paragraph in paragraphs:
-        paragraph_tokens = (
-            tokenizer.count(
-                paragraph
-            )
-        )
+        paragraph_tokens = tokenizer.count(paragraph)
 
         if paragraph_tokens <= chunk_size:
-            units.append(
-                paragraph
-            )
-
+            units.append(paragraph)
         else:
             units.extend(
                 split_large_text(
@@ -210,11 +159,8 @@ def chunk_document(
     current_parts: list[str] = []
 
     for unit in units:
-
         if not current_parts:
-            current_parts.append(
-                unit
-            )
+            current_parts.append(unit)
             continue
 
         candidate_text = "\n\n".join(
@@ -224,41 +170,26 @@ def chunk_document(
             ]
         )
 
-        candidate_tokens = (
-            tokenizer.count(
-                candidate_text
-            )
-        )
+        candidate_tokens = tokenizer.count(candidate_text)
 
         if candidate_tokens <= chunk_size:
-            current_parts.append(
-                unit
-            )
+            current_parts.append(unit)
             continue
 
         # Flush current chunk.
-        current_text = "\n\n".join(
-            current_parts
-        )
+        current_text = "\n\n".join(current_parts)
+        raw_chunks.append(current_text)
 
-        raw_chunks.append(
-            current_text
-        )
-
-        overlap_text = (
-            get_overlap_text(
-                text=current_text,
-                tokenizer=tokenizer,
-                overlap=overlap,
-            )
+        overlap_text = get_overlap_text(
+            text=current_text,
+            tokenizer=tokenizer,
+            overlap=overlap,
         )
 
         current_parts = []
 
         if overlap_text:
-            current_parts.append(
-                overlap_text
-            )
+            current_parts.append(overlap_text)
 
         # Kiểm tra overlap + unit có quá limit không.
         candidate_text = "\n\n".join(
@@ -268,36 +199,19 @@ def chunk_document(
             ]
         )
 
-        if (
-            tokenizer.count(
-                candidate_text
-            )
-            <= chunk_size
-        ):
-            current_parts.append(
-                unit
-            )
+        if tokenizer.count(candidate_text) <= chunk_size:
+            current_parts.append(unit)
 
         else:
             # Unit bản thân đã được split trước,
             # trường hợp này chủ yếu do overlap.
             if current_parts:
-                raw_chunks.append(
-                    "\n\n".join(
-                        current_parts
-                    )
-                )
+                raw_chunks.append("\n\n".join(current_parts))
 
-            current_parts = [
-                unit
-            ]
+            current_parts = [unit]
 
     if current_parts:
-        raw_chunks.append(
-            "\n\n".join(
-                current_parts
-            )
-        )
+        raw_chunks.append("\n\n".join(current_parts))
 
     # ============================================================
     # Final result
@@ -306,18 +220,12 @@ def chunk_document(
     result: list[TextChunk] = []
 
     for raw_text in raw_chunks:
-        text = normalize_text(
-            raw_text
-        )
+        text = normalize_text(raw_text)
 
         if not text:
             continue
 
-        token_count = (
-            tokenizer.count(
-                text
-            )
-        )
+        token_count = tokenizer.count(text)
 
         result.append(
             TextChunk(
