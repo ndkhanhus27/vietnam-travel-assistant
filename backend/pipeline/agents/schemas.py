@@ -479,6 +479,70 @@ class ValidationResult(StrictModel):
 
 
 # ============================================================
+# REASONER
+# ============================================================
+
+
+class ReasonerSection(StrictModel):
+    """
+    Một section trong structured answer plan.
+
+    Đây là output structure, không phải chain-of-thought.
+    """
+
+    heading: str
+
+    points: list[str] = Field(
+        default_factory=list,
+    )
+
+    # RAG / Web evidence được dùng cho section này.
+    evidence_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    # Specialized tool tasks, ví dụ weather_1 / budget_1.
+    observation_task_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+
+class ReasonerOutput(StrictModel):
+    """
+    Structured answer plan được Synthesizer sử dụng.
+
+    Model này chỉ lưu kết luận có cấu trúc và references,
+    không lưu chain-of-thought.
+    """
+
+    answer_type: str
+
+    answer_goal: str
+
+    sections: list[ReasonerSection] = Field(
+        default_factory=list,
+    )
+
+    warnings: list[str] = Field(
+        default_factory=list,
+    )
+
+    limitations: list[str] = Field(
+        default_factory=list,
+    )
+
+    used_evidence_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    used_observation_task_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    degraded: bool = False
+
+
+# ============================================================
 # FINAL RESPONSE
 # ============================================================
 

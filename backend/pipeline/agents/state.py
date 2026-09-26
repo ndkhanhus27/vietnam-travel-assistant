@@ -6,6 +6,7 @@ from pipeline.agents.schemas import (
     AgentResponse,
     EvidenceItem,
     ExecutionPlan,
+    ReasonerOutput,
     ToolObservation,
     ValidationResult,
 )
@@ -61,10 +62,10 @@ class AgentState(TypedDict, total=False):
     retry_count: int
 
     # ========================================================
-    # REASONING
+    # REASONER
     # ========================================================
 
-    reasoning_context: str
+    reasoner_output: ReasonerOutput
 
     # ========================================================
     # FINAL RESPONSE

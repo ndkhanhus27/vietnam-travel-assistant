@@ -17,6 +17,10 @@ from pipeline.agents.planner import (
     TravelPlanner,
 )
 
+from pipeline.agents.reasoner import (
+    TravelReasoner,
+)
+
 from pipeline.agents.state import (
     AgentState,
 )
@@ -53,14 +57,15 @@ class TravelAgentWorkflow:
         research_aggregator
           ↓
         validator
-          ├── valid ────────────────→ END
+          ├── valid ────────────────→ reasoner
           ├── recoverable ─→ retry ─→ executor
-          └── non-recoverable ──────→ END
+          └── non-recoverable ──────→ reasoner
+                                        ↓
+                                       END
 
     Chưa gồm:
 
         - selective task retry
-        - reasoner
         - synthesizer
         - conversation memory
 
@@ -77,6 +82,7 @@ class TravelAgentWorkflow:
             ResearchEvidenceAggregator | None
         ) = None,
         validator: AgentValidator | None = None,
+        reasoner: TravelReasoner | None = None,
     ) -> None:
 
         self.planner = (
@@ -101,6 +107,12 @@ class TravelAgentWorkflow:
             validator
             if validator is not None
             else AgentValidator()
+        )
+
+        self.reasoner = (
+            reasoner
+            if reasoner is not None
+            else TravelReasoner()
         )
 
         self.graph = (
@@ -308,6 +320,86 @@ class TravelAgentWorkflow:
         }
 
     # ========================================================
+    # NODE 6
+    # STRUCTURED ANSWER REASONER
+    # ========================================================
+
+    async def reasoner_node(
+        self,
+        state: AgentState,
+    ) -> dict[str, Any]:
+
+        query = (
+            state.get(
+                "query",
+                "",
+            )
+            .strip()
+        )
+
+        plan = state.get(
+            "plan"
+        )
+
+        validation = state.get(
+            "validation"
+        )
+
+        observations = (
+            state.get(
+                "observations",
+                [],
+            )
+        )
+
+        research_evidence = (
+            state.get(
+                "research_evidence",
+                [],
+            )
+        )
+
+        if not query:
+
+            raise ValueError(
+                "reasoner_node requires "
+                "state.query."
+            )
+
+        if plan is None:
+
+            raise ValueError(
+                "reasoner_node requires "
+                "state.plan."
+            )
+
+        if validation is None:
+
+            raise ValueError(
+                "reasoner_node requires "
+                "state.validation."
+            )
+
+        reasoner_output = (
+            await asyncio.to_thread(
+                self.reasoner.reason,
+                query=query,
+                plan=plan,
+                observations=observations,
+                research_evidence=(
+                    research_evidence
+                ),
+                validation=validation,
+            )
+        )
+
+        return {
+            "reasoner_output": (
+                reasoner_output
+            ),
+        }
+
+    # ========================================================
     # CONDITIONAL ROUTER
     # ========================================================
 
@@ -398,6 +490,11 @@ class TravelAgentWorkflow:
             self.retry_node,
         )
 
+        builder.add_node(
+            "reasoner",
+            self.reasoner_node,
+        )
+
         # ----------------------------------------------------
         # EDGES
         # ----------------------------------------------------
@@ -426,15 +523,20 @@ class TravelAgentWorkflow:
             "validator",
             self.route_after_validation,
             {
-                "done": END,
+                "done": "reasoner",
                 "retry": "retry",
-                "degraded": END,
+                "degraded": "reasoner",
             },
         )
 
         builder.add_edge(
             "retry",
             "executor",
+        )
+
+        builder.add_edge(
+            "reasoner",
+            END,
         )
 
         return builder.compile()
