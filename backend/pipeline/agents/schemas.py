@@ -145,6 +145,9 @@ class ToolName(str, Enum):
 # WEATHER
 # ============================================================
 
+# OpenWeather Free 5-day/3-hour forecast: today (0) through +4.
+WEATHER_MAX_FORECAST_OFFSET_DAYS = 4
+
 
 class WeatherMode(str, Enum):
     """

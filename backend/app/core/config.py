@@ -1,6 +1,10 @@
+from pathlib import Path
 from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -13,7 +17,8 @@ class Settings(BaseSettings):
     entity_extract_max_chars: int = 24_000
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=BACKEND_DIR / ".env",
+        env_file_encoding="utf-8",
         extra="ignore",
     )
     # ============================================================
@@ -74,10 +79,16 @@ class Settings(BaseSettings):
     ] = "advanced"
     web_search_chunks_per_source: int = 2   
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        extra="ignore",
-    )
+    # ============================================================
+    # OPENWEATHER
+    # ============================================================
+
+    openweather_api_key: str = ""
+    openweather_base_url: str = "https://api.openweathermap.org"
+    openweather_units: str = "metric"
+    openweather_language: str = "vi"
+    openweather_geocode_country: str = "VN"
+    openweather_timeout_seconds: float = 15.0
     
    
 
