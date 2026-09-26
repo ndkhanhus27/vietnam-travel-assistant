@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pipeline.agents.schemas import (
+    BudgetRequest,
     ResearchDepth,
     SubTask,
     TaskStatus,
@@ -9,6 +10,7 @@ from pipeline.agents.schemas import (
     WeatherRequest,
 )
 
+from .budget import BudgetTool
 from .knowledge import TravelKnowledgeTool
 from .weather import WeatherTool
 from .web import WebSearchTool
@@ -34,11 +36,11 @@ class ToolRegistry:
         - search_travel_knowledge
         - web_search
         - weather
+        - budget_calculator
 
     Các tool khác sẽ được fill dần:
         - map_location
         - routing
-        - budget_calculator
     """
 
     def __init__(
@@ -63,6 +65,10 @@ class ToolRegistry:
 
         self._weather: (
             WeatherTool | None
+        ) = None
+
+        self._budget: (
+            BudgetTool | None
         ) = None
 
     # ========================================================
@@ -114,6 +120,19 @@ class ToolRegistry:
             )
 
         return self._weather
+
+    @property
+    def budget(
+        self,
+    ) -> BudgetTool:
+
+        if self._budget is None:
+
+            self._budget = (
+                BudgetTool()
+            )
+
+        return self._budget
 
     # ========================================================
     # FAILED OBSERVATION
@@ -379,6 +398,42 @@ class ToolRegistry:
         )
 
     # ========================================================
+    # BUDGET
+    # ========================================================
+
+    def _execute_budget(
+        self,
+        task: SubTask,
+    ) -> ToolObservation:
+
+        try:
+
+            request = (
+                BudgetRequest
+                .model_validate(
+                    task.arguments
+                )
+            )
+
+        except Exception as exc:
+
+            return self._failed(
+                task=task,
+
+                message=(
+                    "Budget arguments không hợp lệ: "
+                    f"{type(exc).__name__}: "
+                    f"{exc}"
+                ),
+            )
+
+        return self.budget.execute(
+            task_id=task.task_id,
+
+            request=request,
+        )
+
+    # ========================================================
     # PUBLIC EXECUTE
     # ========================================================
 
@@ -420,6 +475,15 @@ class ToolRegistry:
             ):
 
                 return self._execute_weather(
+                    task
+                )
+
+            if (
+                task.tool
+                == ToolName.BUDGET
+            ):
+
+                return self._execute_budget(
                     task
                 )
 

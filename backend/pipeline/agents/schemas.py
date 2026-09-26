@@ -520,3 +520,66 @@ class AgentResponse(StrictModel):
 
     needs_followup: bool = False
     
+# ============================================================
+# BUDGET
+# ============================================================
+
+
+class BudgetRequest(StrictModel):
+    """
+    Deterministic budget calculation input.
+
+    Tất cả cost field là TOTAL cost cho toàn chuyến đi,
+    không phải cost/ngày hoặc cost/người.
+
+    BudgetTool không được tự đoán giá.
+    """
+
+    currency: str = "VND"
+
+    travelers: int = Field(
+        default=1,
+        ge=1,
+    )
+
+    days: int = Field(
+        default=1,
+        ge=1,
+    )
+
+    total_budget: float | None = Field(
+        default=None,
+        ge=0,
+    )
+
+    intercity_transport_cost: float = Field(
+        default=0,
+        ge=0,
+    )
+
+    accommodation_cost: float = Field(
+        default=0,
+        ge=0,
+    )
+
+    food_cost: float = Field(
+        default=0,
+        ge=0,
+    )
+
+    ticket_cost: float = Field(
+        default=0,
+        ge=0,
+    )
+
+    local_transport_cost: float = Field(
+        default=0,
+        ge=0,
+    )
+
+    other_cost: float = Field(
+        default=0,
+        ge=0,
+    )
+
+    original_query: str | None = None

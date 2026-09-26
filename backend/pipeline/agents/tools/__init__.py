@@ -1,3 +1,4 @@
+from .budget import BudgetTool
 from .cli import main, parse_args
 from .knowledge import TravelKnowledgeTool
 from .registry import ToolRegistry
@@ -13,6 +14,7 @@ __all__ = [
     "WebSearchTool",
     "TravelKnowledgeTool",
     "WeatherTool",
+    "BudgetTool",
     "ToolRegistry",
     "ResearchEvidenceAggregator",
     "EvidenceAggregator",
