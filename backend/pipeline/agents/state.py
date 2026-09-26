@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import TypedDict
 
+from pipeline.agents.context import (
+    ConversationContext,
+)
+
 from pipeline.agents.schemas import (
     AgentResponse,
     EvidenceItem,
@@ -32,6 +36,10 @@ class AgentState(TypedDict, total=False):
     # ========================================================
 
     query: str
+
+    conversation_context: (
+        ConversationContext
+    )
 
     # ========================================================
     # PLANNER

@@ -9,6 +9,12 @@ from langgraph.graph import (
     StateGraph,
 )
 
+from pipeline.agents.context import (
+    ContextBuilder,
+    ConversationContext,
+    ConversationRole,
+)
+
 from pipeline.agents.executor import (
     ToolExecutor,
 )
@@ -24,6 +30,7 @@ from pipeline.agents.reasoner import (
 from pipeline.agents.schemas import (
     AgentResponse,
     AgentResponseType,
+    ClarificationRequest,
 )
 
 from pipeline.agents.state import (
@@ -79,7 +86,7 @@ class TravelAgentWorkflow:
     Chưa gồm:
 
         - selective task retry
-        - conversation memory
+        - persisted conversation memory
 
     Mục tiêu hiện tại là chứng minh LangGraph có thể
     orchestration các component đã test độc lập.
@@ -88,6 +95,7 @@ class TravelAgentWorkflow:
     def __init__(
         self,
         *,
+        context_builder: ContextBuilder | None = None,
         planner: TravelPlanner | None = None,
         executor: ToolExecutor | None = None,
         aggregator: (
@@ -98,10 +106,20 @@ class TravelAgentWorkflow:
         synthesizer: TravelSynthesizer | None = None,
     ) -> None:
 
+        self.context_builder = (
+            context_builder
+            if context_builder is not None
+            else ContextBuilder()
+        )
+
         self.planner = (
             planner
             if planner is not None
-            else TravelPlanner()
+            else TravelPlanner(
+                context_builder=(
+                    self.context_builder
+                )
+            )
         )
 
         self.executor = (
@@ -172,19 +190,61 @@ class TravelAgentWorkflow:
                 "AgentState.query is required."
             )
 
+        previous_context = state.get(
+            "conversation_context"
+        )
+
         plan = await asyncio.to_thread(
             self.planner.plan,
             query,
+            context=previous_context,
+        )
+
+        context = (
+            self.context_builder
+            .update_after_plan(
+                previous_context=(
+                    previous_context
+                ),
+                query=query,
+                plan=plan,
+            )
         )
 
         return {
             "plan": plan,
+            "conversation_context": context,
         }
 
     # ========================================================
     # NODE 2
     # CLARIFICATION RESPONSE
     # ========================================================
+
+    @staticmethod
+    def _clarification_text(
+        request: ClarificationRequest,
+    ) -> str:
+
+        parts: list[str] = []
+
+        if request.question:
+            parts.append(
+                request.question
+            )
+
+        for field in request.fields:
+
+            if field.question in parts:
+                continue
+
+            parts.append(
+                field.question
+            )
+
+        return "\n".join(
+            parts
+        )
 
     async def clarification_node(
         self,
@@ -231,8 +291,38 @@ class TravelAgentWorkflow:
             degraded=False,
         )
 
+        context = state.get(
+            "conversation_context"
+        )
+
+        clarification_text = (
+            self._clarification_text(
+                request
+            )
+        )
+
+        if (
+            context is not None
+            and clarification_text
+        ):
+
+            context = (
+                self.context_builder
+                .append_message(
+                    context,
+                    role=(
+                        ConversationRole
+                        .ASSISTANT
+                    ),
+                    content=(
+                        clarification_text
+                    ),
+                )
+            )
+
         return {
             "response": response,
+            "conversation_context": context,
         }
 
     # ========================================================
@@ -556,8 +646,30 @@ class TravelAgentWorkflow:
             validation=validation,
         )
 
+        context = state.get(
+            "conversation_context"
+        )
+
+        if (
+            context is not None
+            and response.answer.strip()
+        ):
+
+            context = (
+                self.context_builder
+                .append_message(
+                    context,
+                    role=(
+                        ConversationRole
+                        .ASSISTANT
+                    ),
+                    content=response.answer,
+                )
+            )
+
         return {
             "response": response,
+            "conversation_context": context,
         }
 
     # ========================================================
@@ -762,6 +874,10 @@ class TravelAgentWorkflow:
     async def run(
         self,
         query: str,
+        *,
+        context: (
+            ConversationContext | None
+        ) = None,
     ) -> AgentState:
         """
         Production-style async execution.
@@ -770,6 +886,11 @@ class TravelAgentWorkflow:
         initial_state: AgentState = {
             "query": query,
             "retry_count": 0,
+            "conversation_context": (
+                context
+                if context is not None
+                else ConversationContext()
+            ),
         }
 
         result = await self.graph.ainvoke(
@@ -788,6 +909,10 @@ class TravelAgentWorkflow:
     def run_sync(
         self,
         query: str,
+        *,
+        context: (
+            ConversationContext | None
+        ) = None,
     ) -> AgentState:
         """
         Convenience cho CLI/test.
@@ -799,7 +924,8 @@ class TravelAgentWorkflow:
 
         return asyncio.run(
             self.run(
-                query
+                query,
+                context=context,
             )
         )
 

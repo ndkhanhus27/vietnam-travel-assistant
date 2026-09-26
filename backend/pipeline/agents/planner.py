@@ -19,6 +19,11 @@ from pipeline.agents.clarification import (
     ClarificationPolicy,
 )
 
+from pipeline.agents.context import (
+    ContextBuilder,
+    ConversationContext,
+)
+
 from pipeline.agents.schemas import (
     ConstraintSource,
     ExecutionPlan,
@@ -187,6 +192,9 @@ class TravelPlanner:
         clarification_policy: (
             ClarificationPolicy | None
         ) = None,
+        context_builder: (
+            ContextBuilder | None
+        ) = None,
     ) -> None:
 
         if not settings.gemini_api_key:
@@ -206,14 +214,43 @@ class TravelPlanner:
             )
         )
 
+        self.context_builder = (
+            context_builder
+            if context_builder is not None
+            else ContextBuilder()
+        )
+
     # ========================================================
     # PROMPT
     # ========================================================
 
-    @staticmethod
     def _build_prompt(
+        self,
         query: str,
+        context: (
+            ConversationContext | None
+        ) = None,
     ) -> str:
+
+        conversation_context = (
+            self.context_builder
+            .planner_context_payload(
+                context
+            )
+        )
+
+        input_context = {
+            "current_user_message": query,
+            "conversation_context": (
+                conversation_context
+            ),
+        }
+
+        input_context_json = json.dumps(
+            input_context,
+            ensure_ascii=False,
+            indent=2,
+        )
 
         return f"""
 Bạn là semantic planner của hệ thống
@@ -585,6 +622,58 @@ entities = [
 
 
 ============================================================
+CONVERSATION CONTEXT RULES
+============================================================
+
+The current user message may be a follow-up to an earlier request.
+
+Use conversation_context to resolve:
+
+- omitted destinations
+- omitted origins
+- pronouns and references
+- pending clarification answers
+- previous trip constraints
+- the active intent and goal
+
+If pending_clarification exists and the current user message answers or
+continues that request, interpret the message as part of the original
+request.
+
+Example:
+
+Original request:
+"Lập lịch Đà Lạt cho tôi."
+
+Pending clarification:
+trip_duration
+
+Current message:
+"3 ngày, đi với vợ, khoảng 6 triệu."
+
+Resolved request remains an ITINERARY request for Đà Lạt.
+
+The CURRENT message contributes:
+
+trip_duration = "3 ngày"
+travelers = 2
+budget = 6000000
+
+The previous destination "Đà Lạt" comes from conversation context.
+
+IMPORTANT:
+
+- intent, goal and entities must describe the resolved conversational
+  request, not only the literal current sentence.
+- constraints output must contain only constraints newly stated,
+  changed, or explicitly reaffirmed in the CURRENT user message.
+- Do not copy unchanged conversation constraints into constraints.
+- A current explicit correction overrides old conversation context.
+- If the user clearly changes topic, interpret the new request
+  independently.
+
+
+============================================================
 CONSTRAINT EXTRACTION
 ============================================================
 
@@ -739,10 +828,10 @@ IMPORTANT RULES
 
 
 ============================================================
-USER QUERY
+INPUT
 ============================================================
 
-{query}
+{input_context_json}
 """.strip()
 
     # ========================================================
@@ -752,6 +841,10 @@ USER QUERY
     def _analyze_with_gemini(
         self,
         query: str,
+        *,
+        context: (
+            ConversationContext | None
+        ) = None,
     ) -> PlannerDraft:
 
         response = (
@@ -759,7 +852,8 @@ USER QUERY
                 model=settings.gemini_model,
 
                 contents=self._build_prompt(
-                    query
+                    query,
+                    context=context,
                 ),
 
                 config=types.GenerateContentConfig(
@@ -1002,6 +1096,9 @@ USER QUERY
         *,
         query: str,
         draft: PlannerDraft,
+        context: (
+            ConversationContext | None
+        ) = None,
     ) -> ExecutionPlan:
 
         entities = (
@@ -1010,9 +1107,19 @@ USER QUERY
             )
         )
 
-        constraints = (
+        current_constraints = (
             self._build_constraints(
                 draft
+            )
+        )
+
+        constraints = (
+            self.context_builder
+            .prepare_constraints_for_turn(
+                context=context,
+                current_constraints=(
+                    current_constraints
+                ),
             )
         )
 
@@ -1652,6 +1759,10 @@ USER QUERY
     def plan(
         self,
         query: str,
+        *,
+        context: (
+            ConversationContext | None
+        ) = None,
     ) -> ExecutionPlan:
 
         query = query.strip()
@@ -1664,7 +1775,8 @@ USER QUERY
 
         draft = (
             self._analyze_with_gemini(
-                query
+                query,
+                context=context,
             )
         )
 
@@ -1672,6 +1784,7 @@ USER QUERY
             self._build_execution_plan(
                 query=query,
                 draft=draft,
+                context=context,
             )
         )
 
