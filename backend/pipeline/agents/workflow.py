@@ -21,6 +21,11 @@ from pipeline.agents.reasoner import (
     TravelReasoner,
 )
 
+from pipeline.agents.schemas import (
+    AgentResponse,
+    AgentResponseType,
+)
+
 from pipeline.agents.state import (
     AgentState,
 )
@@ -55,8 +60,10 @@ class TravelAgentWorkflow:
         START
           ↓
         planner
-          ↓
-        executor
+          ├── clarification ─→ clarification_response ─→ END
+          └── execute
+                ↓
+              executor
           ↓
         research_aggregator
           ↓
@@ -176,6 +183,60 @@ class TravelAgentWorkflow:
 
     # ========================================================
     # NODE 2
+    # CLARIFICATION RESPONSE
+    # ========================================================
+
+    async def clarification_node(
+        self,
+        state: AgentState,
+    ) -> dict[str, Any]:
+        """
+        Convert Planner clarification output into the public response.
+
+        This node is deterministic and intentionally does not execute
+        tools, reasoning, or synthesis.
+        """
+
+        plan = state.get(
+            "plan"
+        )
+
+        if plan is None:
+
+            raise ValueError(
+                "clarification_node requires "
+                "state.plan."
+            )
+
+        request = plan.clarification
+
+        if request is None:
+
+            raise ValueError(
+                "clarification_node requires "
+                "plan.clarification."
+            )
+
+        response = AgentResponse(
+            response_type=(
+                AgentResponseType
+                .CLARIFICATION
+            ),
+            answer="",
+            clarification=request,
+            citations=[],
+            intent=plan.intent,
+            used_tools=[],
+            suggested_followups=[],
+            degraded=False,
+        )
+
+        return {
+            "response": response,
+        }
+
+    # ========================================================
+    # NODE 3
     # TOOL EXECUTOR
     # ========================================================
 
@@ -219,7 +280,7 @@ class TravelAgentWorkflow:
         }
 
     # ========================================================
-    # NODE 3
+    # NODE 4
     # RESEARCH EVIDENCE AGGREGATOR
     # ========================================================
 
@@ -258,7 +319,7 @@ class TravelAgentWorkflow:
         }
 
     # ========================================================
-    # NODE 4
+    # NODE 5
     # DETERMINISTIC VALIDATOR
     # ========================================================
 
@@ -307,7 +368,7 @@ class TravelAgentWorkflow:
         }
 
     # ========================================================
-    # NODE 5
+    # NODE 6
     # BOUNDED RETRY COUNTER
     # ========================================================
 
@@ -332,7 +393,7 @@ class TravelAgentWorkflow:
         }
 
     # ========================================================
-    # NODE 6
+    # NODE 7
     # STRUCTURED ANSWER REASONER
     # ========================================================
 
@@ -412,7 +473,7 @@ class TravelAgentWorkflow:
         }
 
     # ========================================================
-    # NODE 7
+    # NODE 8
     # FINAL RESPONSE SYNTHESIZER
     # ========================================================
 
@@ -503,6 +564,33 @@ class TravelAgentWorkflow:
     # CONDITIONAL ROUTER
     # ========================================================
 
+    @staticmethod
+    def route_after_planner(
+        state: AgentState,
+    ) -> str:
+        """
+        Route only from the Planner's explicit clarification contract.
+
+        An empty subtask list is not sufficient: direct-answer intents
+        may legitimately have no tools.
+        """
+
+        plan = state.get(
+            "plan"
+        )
+
+        if plan is None:
+
+            raise ValueError(
+                "route_after_planner requires "
+                "state.plan."
+            )
+
+        if plan.clarification is not None:
+            return "clarification"
+
+        return "execute"
+
     def route_after_validation(
         self,
         state: AgentState,
@@ -571,6 +659,11 @@ class TravelAgentWorkflow:
         )
 
         builder.add_node(
+            "clarification",
+            self.clarification_node,
+        )
+
+        builder.add_node(
             "executor",
             self.executor_node,
         )
@@ -609,9 +702,20 @@ class TravelAgentWorkflow:
             "planner",
         )
 
-        builder.add_edge(
+        builder.add_conditional_edges(
             "planner",
-            "executor",
+            self.route_after_planner,
+            {
+                "clarification": (
+                    "clarification"
+                ),
+                "execute": "executor",
+            },
+        )
+
+        builder.add_edge(
+            "clarification",
+            END,
         )
 
         builder.add_edge(

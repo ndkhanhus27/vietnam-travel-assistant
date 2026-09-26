@@ -15,11 +15,18 @@ from pydantic import (
 
 from app.core.config import settings
 
+from pipeline.agents.clarification import (
+    ClarificationPolicy,
+)
+
 from pipeline.agents.schemas import (
+    ConstraintSource,
     ExecutionPlan,
+    ExtractedConstraint,
     Intent,
     ResearchDepth,
     RetrievalMode,
+    StrictModel,
     SubTask,
     ToolName,
     WeatherMode,
@@ -30,6 +37,31 @@ from pipeline.agents.schemas import (
 # ============================================================
 # INTERNAL LLM OUTPUT
 # ============================================================
+
+
+class PlannerConstraintDraft(StrictModel):
+    """
+    Constraint extracted from the current user message.
+
+    ConstraintSource is intentionally absent: provider output must not
+    decide whether a value came from conversation history or the current
+    turn.
+    """
+
+    key: str = Field(
+        min_length=1,
+    )
+
+    value: (
+        str
+        | int
+        | float
+        | bool
+        | list[str]
+        | None
+    ) = None
+
+    explicit: bool = True
 
 
 class PlannerDraft(BaseModel):
@@ -120,6 +152,12 @@ class PlannerDraft(BaseModel):
         default_factory=dict,
     )
 
+    constraints: list[
+        PlannerConstraintDraft
+    ] = Field(
+        default_factory=list,
+    )
+
 
 # ============================================================
 # PLANNER
@@ -143,7 +181,13 @@ class TravelPlanner:
     Planner chỉ tạo ExecutionPlan.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        clarification_policy: (
+            ClarificationPolicy | None
+        ) = None,
+    ) -> None:
 
         if not settings.gemini_api_key:
             raise RuntimeError(
@@ -152,6 +196,14 @@ class TravelPlanner:
 
         self.client = genai.Client(
             api_key=settings.gemini_api_key
+        )
+
+        self.clarification_policy = (
+            clarification_policy
+            if clarification_policy is not None
+            else ClarificationPolicy(
+                max_fields_per_turn=2
+            )
         )
 
     # ========================================================
@@ -533,6 +585,72 @@ entities = [
 
 
 ============================================================
+CONSTRAINT EXTRACTION
+============================================================
+
+Extract useful constraints explicitly stated or clearly expressed
+in the CURRENT user message.
+
+Constraints use generic key/value pairs.
+
+Prefer canonical keys when applicable:
+
+destination
+origin
+trip_duration
+travel_date
+travel_date_range
+travelers
+budget
+interests
+activity_preferences
+food_preferences
+accommodation_preferences
+transport_mode
+pace
+accessibility_needs
+children
+special_requirements
+
+This list is guidance, not a closed vocabulary.
+Use another clear snake_case key when needed.
+
+Examples:
+
+"Đi Đà Lạt 3 ngày"
+→ destination = "Đà Lạt"
+→ trip_duration = "3 ngày"
+
+"Hai vợ chồng đi Đà Lạt khoảng 6 triệu"
+→ destination = "Đà Lạt"
+→ travelers = 2
+→ budget = 6000000
+
+"Tôi thích thiên nhiên, không thích check-in"
+→ interests = ["thiên nhiên"]
+→ activity_preferences may preserve the negative preference if useful.
+
+"Ngày mai Đà Lạt có mưa không?"
+→ destination = "Đà Lạt"
+→ travel_date = "ngày mai"
+
+RULES:
+
+- Extract only information supported by the current user message.
+- Do not invent defaults.
+- Do not emit missing or unknown constraints.
+- Do not guess budget, number of travelers, duration, dates,
+  preferences, origin, or destination.
+- Set explicit=true when the user directly states the value.
+- Preserve useful user constraints even if they are not required by
+  the immediate tool call.
+- If the user supplies several constraints in one sentence, extract
+  all of them.
+- A follow-up message may contain more information than the field that
+  was previously asked; extract every useful constraint present.
+
+
+============================================================
 SEMANTIC SUBTASKS
 ============================================================
 
@@ -645,7 +763,7 @@ USER QUERY
                 ),
 
                 config=types.GenerateContentConfig(
-                    temperature=0,
+                    temperature=0.1,
 
                     response_mime_type=(
                         "application/json"
@@ -659,7 +777,9 @@ USER QUERY
             )
         )
 
-        if not response.text:
+        response_text = response.text
+
+        if not response_text:
 
             raise RuntimeError(
                 "Gemini không trả PlannerDraft."
@@ -667,21 +787,14 @@ USER QUERY
 
         try:
 
-            payload = json.loads(
-                response.text
-            )
-
             return (
                 PlannerDraft
-                .model_validate(
-                    payload
+                .model_validate_json(
+                    response_text
                 )
             )
 
-        except (
-            json.JSONDecodeError,
-            ValidationError,
-        ) as exc:
+        except ValidationError as exc:
 
             raise RuntimeError(
                 "Planner structured output "
@@ -722,6 +835,132 @@ USER QUERY
             )
 
         return output
+
+    @staticmethod
+    def _build_constraints(
+        draft: PlannerDraft,
+    ) -> list[ExtractedConstraint]:
+        """
+        Convert provider-owned drafts into domain constraints.
+
+        The source is assigned here so the LLM cannot claim that a
+        value came from conversation memory or a clarification turn.
+        """
+
+        constraints: list[
+            ExtractedConstraint
+        ] = []
+
+        seen: set[
+            tuple[str, str]
+        ] = set()
+
+        for item in draft.constraints:
+
+            key = (
+                item.key
+                .strip()
+                .lower()
+                .replace("-", "_")
+                .replace(" ", "_")
+            )
+
+            if not key:
+                continue
+
+            value = item.value
+
+            if value is None:
+                continue
+
+            if isinstance(
+                value,
+                str,
+            ):
+
+                value = value.strip()
+
+                if not value:
+                    continue
+
+            elif isinstance(
+                value,
+                list,
+            ):
+
+                value = (
+                    TravelPlanner
+                    ._unique_strings(
+                        value
+                    )
+                )
+
+                if not value:
+                    continue
+
+            fingerprint = (
+                key,
+                repr(value),
+            )
+
+            if fingerprint in seen:
+                continue
+
+            seen.add(
+                fingerprint
+            )
+
+            constraints.append(
+                ExtractedConstraint(
+                    key=key,
+                    value=value,
+                    source=(
+                        ConstraintSource
+                        .CURRENT_MESSAGE
+                    ),
+                    explicit=(
+                        item.explicit
+                    ),
+                )
+            )
+
+        return constraints
+
+    def _apply_clarification_policy(
+        self,
+        plan: ExecutionPlan,
+    ) -> ExecutionPlan:
+
+        decision = (
+            self.clarification_policy
+            .evaluate(
+                intent=plan.intent,
+                constraints=(
+                    plan.constraints
+                ),
+                entities=plan.entities,
+                subtasks=plan.subtasks,
+                ambiguity_fields=None,
+            )
+        )
+
+        if not decision.needs_clarification:
+            return plan
+
+        return plan.model_copy(
+            update={
+                "clarification": (
+                    decision.clarification
+                ),
+                "subtasks": [],
+                "retrieval_mode": (
+                    RetrievalMode.DIRECT
+                ),
+                "fallback_to_web": False,
+                "require_all_entities": False,
+                "coverage_entities": [],
+            }
+        )
 
     # ========================================================
     # TASK FACTORY
@@ -771,6 +1010,12 @@ USER QUERY
             )
         )
 
+        constraints = (
+            self._build_constraints(
+                draft
+            )
+        )
+
         subtasks: list[
             SubTask
         ] = []
@@ -802,7 +1047,7 @@ USER QUERY
             Intent.OUT_OF_SCOPE,
         }:
 
-            return ExecutionPlan(
+            plan = ExecutionPlan(
                 intent=draft.intent,
 
                 goal=draft.goal,
@@ -828,6 +1073,15 @@ USER QUERY
                 require_all_entities=False,
 
                 coverage_entities=[],
+
+                constraints=constraints,
+            )
+
+            return (
+                self
+                ._apply_clarification_policy(
+                    plan
+                )
             )
 
         # ====================================================
@@ -1344,7 +1598,7 @@ USER QUERY
         # FINAL EXECUTION PLAN
         # ====================================================
 
-        return ExecutionPlan(
+        plan = ExecutionPlan(
             intent=draft.intent,
 
             goal=draft.goal,
@@ -1380,6 +1634,15 @@ USER QUERY
             coverage_entities=(
                 coverage_entities
             ),
+
+            constraints=constraints,
+        )
+
+        return (
+            self
+            ._apply_clarification_policy(
+                plan
+            )
         )
 
     # ========================================================

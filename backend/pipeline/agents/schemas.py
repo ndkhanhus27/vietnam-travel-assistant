@@ -288,6 +288,144 @@ class SubTask(StrictModel):
 
 
 # ============================================================
+# CONVERSATION CONSTRAINTS / CLARIFICATION
+# ============================================================
+
+
+class ConstraintSource(str, Enum):
+    """
+    Nguồn của một constraint được extract.
+
+    Precedence sẽ do ContextBuilder xử lý sau này, không nằm
+    trong schema này.
+    """
+
+    CURRENT_MESSAGE = "current_message"
+    CONVERSATION = "conversation"
+    CLARIFICATION = "clarification"
+    INFERRED = "inferred"
+
+
+class RequirementLevel(str, Enum):
+    """
+    Mức độ cần thiết của một field còn thiếu.
+    """
+
+    BLOCKING = "blocking"
+    IMPORTANT = "important"
+    OPTIONAL = "optional"
+
+
+class ClarificationAnswerType(str, Enum):
+    """
+    Kiểu input frontend có thể gợi ý cho user.
+
+    User vẫn luôn có thể trả lời bằng natural-language message.
+    """
+
+    FREE_TEXT = "free_text"
+    SINGLE_CHOICE = "single_choice"
+    MULTIPLE_CHOICE = "multiple_choice"
+    NUMBER = "number"
+    DATE = "date"
+
+
+class ExtractedConstraint(StrictModel):
+    """
+    Một constraint đã được extract từ message hoặc conversation.
+    """
+
+    key: str = Field(
+        min_length=1,
+    )
+
+    value: Any
+
+    source: ConstraintSource
+
+    explicit: bool = False
+
+
+class ClarificationOption(StrictModel):
+    """
+    Suggested answer option. Đây là convenience cho frontend,
+    không giới hạn natural-language answer của user.
+    """
+
+    label: str = Field(
+        min_length=1,
+    )
+
+    value: Any
+
+    description: str | None = None
+
+
+class ClarificationField(StrictModel):
+    """
+    Một field mà clarification policy muốn hỏi user.
+    """
+
+    key: str = Field(
+        min_length=1,
+    )
+
+    question: str = Field(
+        min_length=1,
+    )
+
+    requirement: RequirementLevel
+
+    answer_type: ClarificationAnswerType = (
+        ClarificationAnswerType.FREE_TEXT
+    )
+
+    options: list[ClarificationOption] = Field(
+        default_factory=list,
+    )
+
+
+class ClarificationRequest(StrictModel):
+    """
+    Structured clarification payload dành cho frontend.
+    """
+
+    question: str = Field(
+        min_length=1,
+    )
+
+    fields: list[ClarificationField] = Field(
+        min_length=1,
+        max_length=2,
+    )
+
+
+class ClarificationDecision(StrictModel):
+    """
+    Internal deterministic policy result.
+
+    ClarificationRequest là phần có thể trả về frontend; hai danh
+    sách missing fields phục vụ debugging và policy evaluation.
+    """
+
+    blocking_fields: list[ClarificationField] = Field(
+        default_factory=list,
+    )
+
+    important_missing_fields: list[
+        ClarificationField
+    ] = Field(
+        default_factory=list,
+    )
+
+    clarification: ClarificationRequest | None = None
+
+    @property
+    def needs_clarification(self) -> bool:
+        return self.clarification is not None
+
+
+# ============================================================
 # EXECUTION PLAN
 # ============================================================
 
@@ -324,6 +462,16 @@ class ExecutionPlan(StrictModel):
     coverage_entities: list[str] = Field(
         default_factory=list,
     )
+
+    constraints: list[ExtractedConstraint] = Field(
+        default_factory=list,
+    )
+
+    clarification: ClarificationRequest | None = None
+
+    @property
+    def needs_clarification(self) -> bool:
+        return self.clarification is not None
 
 # ============================================================
 # TOOL OBSERVATION
@@ -616,6 +764,11 @@ class Citation(StrictModel):
         return self
 
 
+class AgentResponseType(str, Enum):
+    ANSWER = "answer"
+    CLARIFICATION = "clarification"
+
+
 class AgentResponse(StrictModel):
     """
     Output cuối của agent service.
@@ -623,23 +776,55 @@ class AgentResponse(StrictModel):
     Sau này FastAPI /chat có thể trả cấu trúc này.
     """
 
-    answer: str
+    response_type: AgentResponseType = (
+        AgentResponseType.ANSWER
+    )
+
+    answer: str = ""
+
+    clarification: ClarificationRequest | None = None
 
     citations: list[Citation] = Field(
         default_factory=list,
     )
 
-    intent: Intent
+    intent: Intent | None = None
 
     used_tools: list[ToolName] = Field(
         default_factory=list,
     )
 
-    needs_followup: bool = False
-
     suggested_followups: list[str] = Field(
         default_factory=list,
     )
+
+    degraded: bool = False
+
+    @model_validator(mode="after")
+    def validate_response_payload(self) -> AgentResponse:
+        has_clarification = self.clarification is not None
+
+        if (
+            self.response_type
+            == AgentResponseType.CLARIFICATION
+            and not has_clarification
+        ):
+            raise ValueError(
+                "Clarification response requires "
+                "a clarification payload."
+            )
+
+        if (
+            self.response_type
+            == AgentResponseType.ANSWER
+            and has_clarification
+        ):
+            raise ValueError(
+                "Answer response cannot include "
+                "a clarification payload."
+            )
+
+        return self
     
 # ============================================================
 # BUDGET

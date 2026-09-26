@@ -812,8 +812,8 @@ INPUT CONTEXT:
             citations=citations,
             intent=plan.intent,
             used_tools=self._used_tools(citations),
-            needs_followup=False,
             suggested_followups=(
                 draft.suggested_followups
             ),
+            degraded=reasoner_output.degraded,
         )
