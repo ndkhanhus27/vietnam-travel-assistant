@@ -91,6 +91,30 @@ class RetrievalMode(str, Enum):
     TOOL_ONLY = "TOOL_ONLY"
     MIXED = "MIXED"
 
+# ============================================================
+# RESEARCH DEPTH
+# ============================================================
+
+
+class ResearchDepth(str, Enum):
+    """
+    Mức độ research cho travel knowledge.
+
+    BASIC
+        Internal RAG là nguồn chính.
+        Web chỉ fallback nếu corpus thiếu.
+
+    ENRICHED
+        Internal RAG + external web enrichment
+        ngay cả khi RAG đã cover đủ.
+
+    DEEP
+        Reserved cho deep research sau này.
+    """
+
+    BASIC = "BASIC"
+    ENRICHED = "ENRICHED"
+    DEEP = "DEEP"
 
 # ============================================================
 # AVAILABLE TOOLS
@@ -263,13 +287,7 @@ class SubTask(StrictModel):
 # EXECUTION PLAN
 # ============================================================
 
-
 class ExecutionPlan(StrictModel):
-    """
-    Structured output chính của Planner.
-
-    Planner Gemini sẽ sinh object này.
-    """
 
     intent: Intent
 
@@ -287,13 +305,13 @@ class ExecutionPlan(StrictModel):
 
     retrieval_mode: RetrievalMode
 
+    research_depth: ResearchDepth = (
+        ResearchDepth.BASIC
+    )
+
     subtasks: list[SubTask] = Field(
         default_factory=list,
     )
-
-    # --------------------------------------------------------
-    # Adaptive RAG policy
-    # --------------------------------------------------------
 
     fallback_to_web: bool = False
 
@@ -302,7 +320,6 @@ class ExecutionPlan(StrictModel):
     coverage_entities: list[str] = Field(
         default_factory=list,
     )
-
 
 # ============================================================
 # TOOL OBSERVATION

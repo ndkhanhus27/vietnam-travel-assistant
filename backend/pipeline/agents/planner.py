@@ -18,12 +18,14 @@ from app.core.config import settings
 from pipeline.agents.schemas import (
     ExecutionPlan,
     Intent,
+    ResearchDepth,
     RetrievalMode,
     SubTask,
     ToolName,
     WeatherMode,
     WeatherRequest,
 )
+
 
 # ============================================================
 # INTERNAL LLM OUTPUT
@@ -32,22 +34,32 @@ from pipeline.agents.schemas import (
 
 class PlannerDraft(BaseModel):
     """
-    Output semantic trực tiếp từ Gemini.
+    Semantic interpretation trực tiếp từ Gemini.
 
-    Không dùng class này ngoài planner.py.
+    Đây CHƯA phải ExecutionPlan cuối.
 
-    Các policy quan trọng như:
-    - retrieval mode
-    - fallback
-    - coverage
-    - required tool
+    Gemini chịu trách nhiệm:
+        - hiểu intent
+        - tìm entity
+        - hiểu nhu cầu của query
+        - hiểu temporal expression
+        - phát hiện capability cần dùng
 
-    sẽ được Python quyết định sau.
+    Python deterministic policy chịu trách nhiệm:
+        - retrieval mode
+        - research depth
+        - fallback policy
+        - coverage policy
+        - tool routing
     """
 
     model_config = ConfigDict(
         extra="forbid",
     )
+
+    # --------------------------------------------------------
+    # QUERY SEMANTICS
+    # --------------------------------------------------------
 
     intent: Intent
 
@@ -63,9 +75,23 @@ class PlannerDraft(BaseModel):
 
     is_compound: bool = False
 
+    # --------------------------------------------------------
+    # CAPABILITY FLAGS
+    # --------------------------------------------------------
+
     needs_travel_knowledge: bool = False
 
     needs_weather: bool = False
+
+    needs_web_search: bool = False
+
+    needs_routing: bool = False
+
+    needs_budget: bool = False
+
+    # --------------------------------------------------------
+    # WEATHER SEMANTICS
+    # --------------------------------------------------------
 
     weather_mode: WeatherMode = (
         WeatherMode.AUTO
@@ -75,12 +101,13 @@ class PlannerDraft(BaseModel):
 
     weather_end_offset_days: int = 0
 
-    weather_time_expression: str | None = None
-    needs_web_search: bool = False
+    weather_time_expression: (
+        str | None
+    ) = None
 
-    needs_routing: bool = False
-
-    needs_budget: bool = False
+    # --------------------------------------------------------
+    # OPTIONAL SEMANTIC INFO
+    # --------------------------------------------------------
 
     semantic_subtasks: list[str] = Field(
         default_factory=list,
@@ -103,19 +130,17 @@ class TravelPlanner:
     """
     Gemini semantic planner
     +
-    deterministic routing policy.
-
-    Gemini:
-        hiểu user query.
-
-    Python:
-        quyết định execution policy.
+    deterministic Python policy.
 
     Planner KHÔNG:
         - gọi RAG
         - gọi Tavily
         - gọi Weather API
+        - gọi Routing API
+        - tính budget
         - trả lời user
+
+    Planner chỉ tạo ExecutionPlan.
     """
 
     def __init__(self) -> None:
@@ -139,17 +164,18 @@ class TravelPlanner:
     ) -> str:
 
         return f"""
-Bạn là Planner của hệ thống Vietnam Travel AI.
+Bạn là semantic planner của hệ thống
+Vietnam Travel AI.
 
-Nhiệm vụ của bạn:
+Nhiệm vụ:
 
 PHÂN TÍCH câu hỏi của user.
 
-KHÔNG trả lời câu hỏi.
-
+KHÔNG trả lời user.
+KHÔNG gọi tool.
 KHÔNG giả lập kết quả tool.
-
-KHÔNG tự quyết định corpus có dữ liệu hay không.
+KHÔNG quyết định corpus có dữ liệu hay không.
+KHÔNG tự bịa địa điểm.
 
 
 ============================================================
@@ -160,133 +186,273 @@ GENERAL
 
 - chào hỏi
 - giao tiếp thông thường
-- không yêu cầu dữ liệu du lịch cụ thể
+- câu hỏi không cần travel data
 
+
+------------------------------------------------------------
 
 FACTUAL_TRAVEL
 
-- hỏi địa danh
+Thông tin du lịch tương đối ổn định:
+
+- địa danh
 - điểm tham quan
 - lịch sử
 - văn hóa
-- đặc điểm du lịch
-- thông tin tương đối ổn định
+- đặc điểm địa phương
+- ẩm thực
+- hoạt động du lịch
 
+
+------------------------------------------------------------
 
 RECOMMENDATION
 
 - gợi ý địa điểm
-- chọn nơi phù hợp sở thích
+- chọn nơi phù hợp nhu cầu
 - đề xuất trải nghiệm
+- nên đi đâu
+- nơi nào phù hợp hơn theo tiêu chí
 
+
+------------------------------------------------------------
 
 COMPARISON
 
-- so sánh từ hai địa điểm trở lên
+So sánh từ 2 địa điểm trở lên.
 
 Ví dụ:
 
-"Sa Pa và Đà Lạt khác nhau như thế nào?"
+"Sa Pa và Đà Lạt khác nhau thế nào?"
 
+
+------------------------------------------------------------
 
 ITINERARY
 
-- lịch trình
-- kế hoạch chuyến đi
+- lập lịch trình
+- lên kế hoạch chuyến đi
 - chuyến đi nhiều ngày
+- sắp xếp địa điểm
 
+
+------------------------------------------------------------
 
 WEATHER
 
+- thời tiết
 - mưa
 - nắng
 - nhiệt độ
-- thời tiết
 - dự báo
+- thời tiết hiện tại
+- thời tiết những ngày gần đây
 
+
+------------------------------------------------------------
 
 ROUTING
 
 - cách đi
-- quãng đường
-- thời gian di chuyển
 - tuyến đường
+- khoảng cách
+- thời gian di chuyển
 - đi từ A đến B
+- phương tiện
 
+
+------------------------------------------------------------
 
 CURRENT_INFO
 
-Thông tin có thể thay đổi theo thời gian:
+Thông tin freshness-sensitive:
 
+- giá hiện tại
 - giá vé hiện tại
 - giờ mở cửa hiện tại
-- tình trạng đóng/mở
+- đóng/mở hiện tại
 - sự kiện đang diễn ra
-- thông tin hôm nay
+- tình trạng hôm nay
 - thông tin mới nhất
 
 
+------------------------------------------------------------
+
 BUDGET
 
-- tính ngân sách
-- tổng chi phí
-- ngân sách có đủ hay không
+- tính tổng chi phí
+- ngân sách có đủ không
+- chia ngân sách
+- ước tính chi phí chuyến đi
 
+
+------------------------------------------------------------
 
 OUT_OF_SCOPE
 
-- không thuộc travel
-- không phải general conversation phù hợp
+Không thuộc travel và không phải
+general conversation phù hợp.
 
 
 ============================================================
-SEMANTIC FLAGS
+CAPABILITY FLAGS
 ============================================================
 
 needs_travel_knowledge = true
 
-khi cần kiến thức du lịch tương đối ổn định:
+khi cần knowledge du lịch tương đối ổn định:
 
-- địa danh
-- attractions
-- văn hóa
+- factual travel
 - recommendation
 - comparison
 - itinerary
 
 
+------------------------------------------------------------
+
 needs_weather = true
 
-khi user yêu cầu dữ liệu weather.
+khi user yêu cầu:
 
+- current weather
+- forecast
+- historical recent weather
+- temperature
+- rain
+
+
+------------------------------------------------------------
 
 needs_web_search = true
 
-CHỈ khi user trực tiếp yêu cầu
-fresh/current information như:
+CHỈ khi user trực tiếp cần
+fresh/current information:
 
 - giá hiện tại
-- mở cửa hiện tại
+- giờ mở cửa hiện tại
 - closure
 - event
-- mới nhất
+- thông tin mới nhất
 
-KHÔNG bật web_search chỉ vì lo corpus thiếu.
-RAG tool sẽ tự fallback web khi corpus thiếu.
+KHÔNG bật needs_web_search
+chỉ vì lo internal RAG thiếu dữ liệu.
 
+Knowledge retrieval layer tự xử lý
+RAG fallback nếu corpus thiếu.
+
+
+------------------------------------------------------------
 
 needs_routing = true
 
 khi cần:
-- route
-- distance
-- duration
-- phương tiện/cách di chuyển
 
+- distance
+- route
+- travel duration
+- cách đi
+- phương tiện
+
+
+------------------------------------------------------------
 
 needs_budget = true
 
-khi cần tính toán ngân sách.
+khi query cần:
+
+- calculation
+- budget assessment
+- total cost
+
+
+============================================================
+WEATHER TEMPORAL PARSING
+============================================================
+
+Không chuyển relative date thành
+calendar date YYYY-MM-DD.
+
+Chỉ trả OFFSET so với ngày local hiện tại.
+
+Ngày thực tế được WeatherTool resolve
+deterministically ở runtime.
+
+
+CURRENT / hiện tại / hôm nay:
+
+weather_mode = CURRENT
+weather_start_offset_days = 0
+weather_end_offset_days = 0
+
+
+"ngày mai":
+
+weather_mode = FORECAST
+weather_start_offset_days = 1
+weather_end_offset_days = 1
+
+
+"3 ngày nữa":
+
+weather_mode = FORECAST
+weather_start_offset_days = 3
+weather_end_offset_days = 3
+
+
+"5 ngày tới":
+
+weather_mode = FORECAST_RANGE
+weather_start_offset_days = 0
+weather_end_offset_days = 5
+
+
+"hôm qua":
+
+weather_mode = RECENT_HISTORY
+weather_start_offset_days = -1
+weather_end_offset_days = -1
+
+
+"3 ngày trước":
+
+weather_mode = RECENT_HISTORY
+weather_start_offset_days = -3
+weather_end_offset_days = -3
+
+
+"3 ngày gần đây":
+
+weather_mode = RECENT_HISTORY_RANGE
+weather_start_offset_days = -3
+weather_end_offset_days = 0
+
+
+QUAN TRỌNG:
+
+Không tự clamp offset.
+
+Ví dụ:
+
+"15 ngày nữa Đà Lạt có mưa không?"
+
+phải giữ:
+
+weather_start_offset_days = 15
+weather_end_offset_days = 15
+
+WeatherTool sẽ tự kiểm tra
+provider có hỗ trợ hay không.
+
+
+weather_time_expression:
+
+giữ lại text thời gian của user.
+
+Ví dụ:
+
+"ngày mai"
+"3 ngày nữa"
+"5 ngày tới"
 
 
 ============================================================
@@ -298,7 +464,7 @@ Một query có thể cần nhiều capability.
 Ví dụ:
 
 "Lập lịch Đà Nẵng 3 ngày tuần sau,
-xem thời tiết và 5 triệu có đủ không"
+xem thời tiết và kiểm tra 5 triệu có đủ không"
 
 Có thể:
 
@@ -319,7 +485,7 @@ Ví dụ:
 
 "Bà Nà và Măng Đen khác nhau như thế nào?"
 
-Phải:
+Phải nhận ra:
 
 intent = COMPARISON
 
@@ -330,22 +496,24 @@ entities = [
 
 needs_travel_knowledge = true
 
-Không cần needs_web_search=true.
+Không bật needs_web_search chỉ vì
+có thể corpus thiếu.
 
-Knowledge tool tự thực hiện:
+Knowledge layer sẽ tự:
 
-RAG first
-→ kiểm tra từng entity
-→ chỉ web fallback entity thiếu.
+RAG
+→ coverage
+→ web fallback nếu thiếu.
 
 
 ============================================================
 ENTITY EXTRACTION
 ============================================================
 
-Chỉ lấy entity được user thể hiện rõ.
+Chỉ lấy explicit travel entity
+được user thể hiện rõ.
 
-Không hallucinate entity.
+Không hallucinate địa điểm.
 
 Ví dụ:
 
@@ -354,11 +522,21 @@ Ví dụ:
 entities = ["Đà Lạt"]
 
 
+Ví dụ:
+
+"Sa Pa và Đà Lạt khác nhau thế nào?"
+
+entities = [
+    "Sa Pa",
+    "Đà Lạt"
+]
+
+
 ============================================================
 SEMANTIC SUBTASKS
 ============================================================
 
-semantic_subtasks mô tả các nhu cầu độc lập.
+Có thể mô tả các nhu cầu độc lập.
 
 Ví dụ:
 
@@ -368,17 +546,18 @@ xem thời tiết và kiểm tra 5 triệu có đủ không"
 semantic_subtasks:
 
 [
-    "Tìm thông tin và điểm tham quan ở Đà Nẵng",
+    "Tìm thông tin du lịch Đà Nẵng",
     "Kiểm tra thời tiết Đà Nẵng",
-    "Kiểm tra ngân sách 5 triệu"
+    "Đánh giá ngân sách 5 triệu"
 ]
 
 
 ============================================================
-TOOL ARGUMENTS
+TOOL ARGUMENT HINTS
 ============================================================
 
-Có thể chuẩn bị argument semantic cho từng capability.
+tool_arguments có thể chứa
+semantic arguments chuẩn bị trước.
 
 Key hợp lệ:
 
@@ -388,7 +567,8 @@ web_search
 routing
 budget
 
-Ví dụ:
+
+Ví dụ WEATHER:
 
 "Ngày mai Đà Lạt có mưa không?"
 
@@ -396,12 +576,12 @@ tool_arguments:
 
 {{
     "weather": {{
-        "location": "Đà Lạt",
-        "query": "Ngày mai Đà Lạt có mưa không?"
+        "location": "Đà Lạt"
     }}
 }}
 
-Ví dụ:
+
+Ví dụ CURRENT INFO:
 
 "Giá vé Bà Nà hiện tại bao nhiêu?"
 
@@ -409,34 +589,46 @@ tool_arguments:
 
 {{
     "web_search": {{
-        "query": "Giá vé Bà Nà hiện tại bao nhiêu?",
         "entity": "Bà Nà"
     }}
 }}
 
-Không invent giá trị mà user không cung cấp.
+
+Không invent:
+
+- price
+- distance
+- coordinates
+- route
+- weather result
+- budget values user không cung cấp
 
 
 ============================================================
-IMPORTANT
+IMPORTANT RULES
 ============================================================
 
 - Không trả lời user.
-- Không hallucinate địa điểm.
-- Không invent tool result.
-- Không thêm web_search cho static travel knowledge.
-- Weather luôn là fresh data.
-- Current info luôn freshness_required=true.
-- Compound query phải giữ tất cả capability cần thiết.
+- Không hallucinate entity.
+- Không giả lập tool result.
+- Không thêm web search cho static travel knowledge.
+- Weather luôn freshness-sensitive.
+- CURRENT_INFO luôn freshness-sensitive.
+- Compound query phải giữ mọi capability cần thiết.
+- Comparison phải giữ đủ explicit entities.
+- Relative date chỉ convert thành offset.
+- Không tính ngày calendar.
 
 
-USER QUERY:
+============================================================
+USER QUERY
+============================================================
 
 {query}
 """.strip()
 
     # ========================================================
-    # GEMINI
+    # GEMINI STRUCTURED OUTPUT
     # ========================================================
 
     def _analyze_with_gemini(
@@ -447,9 +639,11 @@ USER QUERY:
         response = (
             self.client.models.generate_content(
                 model=settings.gemini_model,
+
                 contents=self._build_prompt(
                     query
                 ),
+
                 config=types.GenerateContentConfig(
                     temperature=0,
 
@@ -466,6 +660,7 @@ USER QUERY:
         )
 
         if not response.text:
+
             raise RuntimeError(
                 "Gemini không trả PlannerDraft."
             )
@@ -503,11 +698,14 @@ USER QUERY:
     ) -> list[str]:
 
         output: list[str] = []
+
         seen: set[str] = set()
 
         for value in values:
 
-            value = value.strip()
+            value = str(
+                value
+            ).strip()
 
             if not value:
                 continue
@@ -557,7 +755,7 @@ USER QUERY:
         )
 
     # ========================================================
-    # DETERMINISTIC POLICY
+    # DETERMINISTIC EXECUTION POLICY
     # ========================================================
 
     def _build_execution_plan(
@@ -580,8 +778,7 @@ USER QUERY:
         task_number = 1
 
         # ----------------------------------------------------
-        # Helper for stable IDs:
-        # task_1, task_2, ...
+        # Stable task IDs
         # ----------------------------------------------------
 
         def next_id() -> str:
@@ -597,7 +794,7 @@ USER QUERY:
             return value
 
         # ====================================================
-        # GENERAL / OUT OF SCOPE
+        # DIRECT QUERY
         # ====================================================
 
         if draft.intent in {
@@ -618,6 +815,10 @@ USER QUERY:
 
                 retrieval_mode=(
                     RetrievalMode.DIRECT
+                ),
+
+                research_depth=(
+                    ResearchDepth.BASIC
                 ),
 
                 subtasks=[],
@@ -653,18 +854,20 @@ USER QUERY:
                 )
             )
 
-            rag_arguments.update(
-                {
-                    "query": query,
+            # Deterministic override:
+            # không tin LLM cho các field policy.
+            rag_arguments[
+                "query"
+            ] = query
 
-                    "entities": (
-                        entities
-                    ),
+            rag_arguments[
+                "entities"
+            ] = entities
 
-                    "require_all_entities": (
-                        bool(entities)
-                    ),
-                }
+            rag_arguments[
+                "require_all_entities"
+            ] = bool(
+                entities
             )
 
             subtasks.append(
@@ -695,61 +898,139 @@ USER QUERY:
         )
 
         if needs_weather:
-            location = (
-                entities[0]
-                if entities
-                else ""
+
+            raw_weather_args = dict(
+                draft.tool_arguments.get(
+                    "weather",
+                    {},
+                )
             )
 
-            weather_request = (
-                WeatherRequest(
-                    location=location,
+            raw_location = (
+                raw_weather_args.get(
+                    "location"
+                )
+            )
 
-                    mode=(
-                        draft.weather_mode
+            if raw_location:
+
+                location = str(
+                    raw_location
+                ).strip()
+
+            elif entities:
+
+                location = (
+                    entities[0]
+                )
+
+            else:
+
+                location = ""
+
+            # ------------------------------------------------
+            # Có location:
+            # validate bằng WeatherRequest.
+            # ------------------------------------------------
+
+            if location:
+
+                weather_request = (
+                    WeatherRequest(
+                        location=location,
+
+                        mode=(
+                            draft.weather_mode
+                        ),
+
+                        start_offset_days=(
+                            draft
+                            .weather_start_offset_days
+                        ),
+
+                        end_offset_days=(
+                            draft
+                            .weather_end_offset_days
+                        ),
+
+                        time_expression=(
+                            draft
+                            .weather_time_expression
+                        ),
+
+                        original_query=query,
+                    )
+                )
+
+                weather_arguments = (
+                    weather_request
+                    .model_dump(
+                        mode="json"
+                    )
+                )
+
+            # ------------------------------------------------
+            # Không có location:
+            #
+            # vẫn tạo task.
+            # WeatherTool/Validator sau này báo
+            # WEATHER_LOCATION_MISSING.
+            #
+            # Không để Planner crash.
+            # ------------------------------------------------
+
+            else:
+
+                weather_arguments = {
+                    "location": "",
+
+                    "mode": (
+                        draft
+                        .weather_mode
+                        .value
                     ),
 
-                    start_offset_days=(
+                    "start_offset_days": (
                         draft
                         .weather_start_offset_days
                     ),
 
-                    end_offset_days=(
+                    "end_offset_days": (
                         draft
                         .weather_end_offset_days
                     ),
 
-                    time_expression=(
+                    "time_expression": (
                         draft
                         .weather_time_expression
                     ),
 
-                    original_query=query,
-                )
-            )
+                    "original_query": query,
+                }
 
             subtasks.append(
                 self._task(
                     task_id=next_id(),
 
                     description=(
-                        "Lấy dữ liệu thời tiết "
-                        f"cho {location}"
+                        "Lấy dữ liệu thời tiết"
+                        + (
+                            f" cho {location}"
+                            if location
+                            else ""
+                        )
                     ),
 
                     tool=ToolName.WEATHER,
 
                     arguments=(
-                        weather_request
-                        .model_dump(
-                            mode="json"
-                        )
+                        weather_arguments
                     ),
                 )
             )
 
         # ====================================================
-        # CURRENT WEB DATA
+        # CURRENT / FRESH WEB DATA
         # ====================================================
 
         needs_web = (
@@ -767,15 +1048,18 @@ USER QUERY:
                 )
             )
 
+            # Luôn giữ original query.
             web_arguments[
                 "query"
             ] = query
 
             if (
-                "entity"
-                not in web_arguments
+                not web_arguments.get(
+                    "entity"
+                )
                 and len(entities) == 1
             ):
+
                 web_arguments[
                     "entity"
                 ] = entities[0]
@@ -892,13 +1176,17 @@ USER QUERY:
             )
 
         # ====================================================
-        # RETRIEVAL MODE
+        # USED TOOLS
         # ====================================================
 
         used_tools = {
-            item.tool
-            for item in subtasks
+            task.tool
+            for task in subtasks
         }
+
+        # ====================================================
+        # RETRIEVAL MODE POLICY
+        # ====================================================
 
         if len(used_tools) > 1:
 
@@ -937,13 +1225,62 @@ USER QUERY:
             )
 
         # ====================================================
+        # RESEARCH DEPTH POLICY
+        # ====================================================
+
+        """
+        BASIC:
+
+            Internal RAG là backbone.
+
+            Web chỉ dùng:
+                - direct CURRENT_INFO
+                - hoặc RAG fallback khi thiếu.
+
+
+        ENRICHED:
+
+            Complex travel task cần thêm
+            external evidence dù RAG đã cover.
+
+            Tool executor/evidence layer sau này
+            sẽ thực hiện:
+
+                RAG
+                +
+                web enrichment
+                ↓
+                merge
+                ↓
+                rerank
+        """
+
+        if draft.intent in {
+            Intent.COMPARISON,
+            Intent.RECOMMENDATION,
+            Intent.ITINERARY,
+        }:
+
+            research_depth = (
+                ResearchDepth.ENRICHED
+            )
+
+        else:
+
+            research_depth = (
+                ResearchDepth.BASIC
+            )
+
+        # ====================================================
         # COVERAGE POLICY
         # ====================================================
 
         require_all_entities = (
             ToolName.RAG
             in used_tools
-            and bool(entities)
+            and bool(
+                entities
+            )
         )
 
         coverage_entities = (
@@ -955,6 +1292,18 @@ USER QUERY:
         # ====================================================
         # WEB FALLBACK POLICY
         # ====================================================
+
+        """
+        True nghĩa là knowledge tool được phép:
+
+            RAG
+              ↓
+            coverage thiếu
+              ↓
+            web fallback
+
+        KHÔNG có nghĩa web được gọi ngay.
+        """
 
         fallback_to_web = (
             ToolName.RAG
@@ -978,13 +1327,22 @@ USER QUERY:
 
         is_compound = (
             draft.is_compound
+
             or len(subtasks) > 1
+
             or (
                 draft.intent
                 == Intent.COMPARISON
-                and len(entities) >= 2
+
+                and len(
+                    entities
+                ) >= 2
             )
         )
+
+        # ====================================================
+        # FINAL EXECUTION PLAN
+        # ====================================================
 
         return ExecutionPlan(
             intent=draft.intent,
@@ -1005,6 +1363,10 @@ USER QUERY:
                 retrieval_mode
             ),
 
+            research_depth=(
+                research_depth
+            ),
+
             subtasks=subtasks,
 
             fallback_to_web=(
@@ -1021,7 +1383,7 @@ USER QUERY:
         )
 
     # ========================================================
-    # PUBLIC
+    # PUBLIC API
     # ========================================================
 
     def plan(
@@ -1032,6 +1394,7 @@ USER QUERY:
         query = query.strip()
 
         if not query:
+
             raise ValueError(
                 "Query không được rỗng."
             )
@@ -1051,7 +1414,7 @@ USER QUERY:
 
 
 # ============================================================
-# CLI FOR STEP-BY-STEP TESTING
+# CLI
 # ============================================================
 
 
@@ -1087,12 +1450,13 @@ def main() -> None:
 
     print()
 
-    print("=" * 80)
+    print("=" * 90)
     print("AGENT PLANNER")
-    print("=" * 80)
+    print("=" * 90)
 
     print(
-        f"Query              : {query}"
+        f"Query              : "
+        f"{query}"
     )
 
     print(
@@ -1126,6 +1490,11 @@ def main() -> None:
     )
 
     print(
+        f"Research depth     : "
+        f"{plan.research_depth.value}"
+    )
+
+    print(
         f"Fallback to web    : "
         f"{plan.fallback_to_web}"
     )
@@ -1144,17 +1513,23 @@ def main() -> None:
     print("SUBTASKS")
 
     if not plan.subtasks:
+
         print("  -")
 
     for task in plan.subtasks:
 
-        arguments_json = json.dumps(
-            task.arguments,
-            ensure_ascii=False,
-            indent=2,
+        arguments_json = (
+            json.dumps(
+                task.arguments,
+
+                ensure_ascii=False,
+
+                indent=2,
+            )
         )
 
         print()
+
         print(
             f"  [{task.task_id}]"
         )
