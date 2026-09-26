@@ -25,6 +25,10 @@ from pipeline.agents.state import (
     AgentState,
 )
 
+from pipeline.agents.synthesizer import (
+    TravelSynthesizer,
+)
+
 from pipeline.agents.tools import (
     ResearchEvidenceAggregator,
 )
@@ -61,12 +65,13 @@ class TravelAgentWorkflow:
           ├── recoverable ─→ retry ─→ executor
           └── non-recoverable ──────→ reasoner
                                         ↓
+                                    synthesizer
+                                        ↓
                                        END
 
     Chưa gồm:
 
         - selective task retry
-        - synthesizer
         - conversation memory
 
     Mục tiêu hiện tại là chứng minh LangGraph có thể
@@ -83,6 +88,7 @@ class TravelAgentWorkflow:
         ) = None,
         validator: AgentValidator | None = None,
         reasoner: TravelReasoner | None = None,
+        synthesizer: TravelSynthesizer | None = None,
     ) -> None:
 
         self.planner = (
@@ -113,6 +119,12 @@ class TravelAgentWorkflow:
             reasoner
             if reasoner is not None
             else TravelReasoner()
+        )
+
+        self.synthesizer = (
+            synthesizer
+            if synthesizer is not None
+            else TravelSynthesizer()
         )
 
         self.graph = (
@@ -400,6 +412,94 @@ class TravelAgentWorkflow:
         }
 
     # ========================================================
+    # NODE 7
+    # FINAL RESPONSE SYNTHESIZER
+    # ========================================================
+
+    async def synthesizer_node(
+        self,
+        state: AgentState,
+    ) -> dict[str, Any]:
+
+        query = (
+            state.get(
+                "query",
+                "",
+            )
+            .strip()
+        )
+
+        plan = state.get(
+            "plan"
+        )
+
+        reasoner_output = state.get(
+            "reasoner_output"
+        )
+
+        validation = state.get(
+            "validation"
+        )
+
+        observations = (
+            state.get(
+                "observations",
+                [],
+            )
+        )
+
+        research_evidence = (
+            state.get(
+                "research_evidence",
+                [],
+            )
+        )
+
+        if not query:
+
+            raise ValueError(
+                "synthesizer_node requires "
+                "state.query."
+            )
+
+        if plan is None:
+
+            raise ValueError(
+                "synthesizer_node requires "
+                "state.plan."
+            )
+
+        if reasoner_output is None:
+
+            raise ValueError(
+                "synthesizer_node requires "
+                "state.reasoner_output."
+            )
+
+        if validation is None:
+
+            raise ValueError(
+                "synthesizer_node requires "
+                "state.validation."
+            )
+
+        response = await asyncio.to_thread(
+            self.synthesizer.synthesize,
+            query=query,
+            plan=plan,
+            reasoner_output=reasoner_output,
+            observations=observations,
+            research_evidence=(
+                research_evidence
+            ),
+            validation=validation,
+        )
+
+        return {
+            "response": response,
+        }
+
+    # ========================================================
     # CONDITIONAL ROUTER
     # ========================================================
 
@@ -495,6 +595,11 @@ class TravelAgentWorkflow:
             self.reasoner_node,
         )
 
+        builder.add_node(
+            "synthesizer",
+            self.synthesizer_node,
+        )
+
         # ----------------------------------------------------
         # EDGES
         # ----------------------------------------------------
@@ -536,6 +641,11 @@ class TravelAgentWorkflow:
 
         builder.add_edge(
             "reasoner",
+            "synthesizer",
+        )
+
+        builder.add_edge(
+            "synthesizer",
             END,
         )
 

@@ -7,6 +7,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    model_validator,
 )
 
 
@@ -483,6 +484,24 @@ class ValidationResult(StrictModel):
 # ============================================================
 
 
+class ReasonerPoint(StrictModel):
+    """
+    Một claim/khuyến nghị với grounding riêng.
+
+    IDs chỉ được chứa các nguồn trực tiếp hỗ trợ point này.
+    """
+
+    text: str
+
+    evidence_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    observation_task_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+
 class ReasonerSection(StrictModel):
     """
     Một section trong structured answer plan.
@@ -492,17 +511,9 @@ class ReasonerSection(StrictModel):
 
     heading: str
 
-    points: list[str] = Field(
-        default_factory=list,
-    )
+    purpose: str
 
-    # RAG / Web evidence được dùng cho section này.
-    evidence_ids: list[str] = Field(
-        default_factory=list,
-    )
-
-    # Specialized tool tasks, ví dụ weather_1 / budget_1.
-    observation_task_ids: list[str] = Field(
+    points: list[ReasonerPoint] = Field(
         default_factory=list,
     )
 
@@ -543,8 +554,27 @@ class ReasonerOutput(StrictModel):
 
 
 # ============================================================
-# FINAL RESPONSE
+# SYNTHESIZER / FINAL RESPONSE
 # ============================================================
+
+
+class SynthesizerOutput(StrictModel):
+    """
+    Draft do LLM tạo.
+
+    Citation vẫn dùng internal marker:
+
+        [[evidence:<evidence_id>]]
+        [[tool:<task_id>]]
+
+    Citation resolver sẽ xử lý deterministic sau.
+    """
+
+    answer_markdown: str
+
+    suggested_followups: list[str] = Field(
+        default_factory=list,
+    )
 
 
 class Citation(StrictModel):
@@ -554,13 +584,36 @@ class Citation(StrictModel):
 
     citation_id: str
 
-    evidence_id: str
+    evidence_id: str | None = None
+
+    task_id: str | None = None
 
     title: str
 
     url: str | None = None
 
     source_type: EvidenceSource
+
+    tool: ToolName | None = None
+
+    provider: str | None = None
+
+    metadata: dict[str, Any] = Field(
+        default_factory=dict,
+    )
+
+    @model_validator(mode="after")
+    def validate_source_reference(self) -> Citation:
+        has_evidence = self.evidence_id is not None
+        has_task = self.task_id is not None
+
+        if has_evidence == has_task:
+            raise ValueError(
+                "Citation requires exactly one of "
+                "evidence_id or task_id."
+            )
+
+        return self
 
 
 class AgentResponse(StrictModel):
@@ -583,6 +636,10 @@ class AgentResponse(StrictModel):
     )
 
     needs_followup: bool = False
+
+    suggested_followups: list[str] = Field(
+        default_factory=list,
+    )
     
 # ============================================================
 # BUDGET

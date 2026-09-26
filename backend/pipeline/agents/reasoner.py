@@ -12,6 +12,7 @@ from pipeline.agents.schemas import (
     EvidenceItem,
     ExecutionPlan,
     ReasonerOutput,
+    ToolName,
     ToolObservation,
     ValidationResult,
 )
@@ -48,10 +49,19 @@ class TravelReasoner:
     Output chỉ là structured answer plan.
     """
 
+    _SPECIALIZED_TOOLS = frozenset(
+        {
+            ToolName.WEATHER,
+            ToolName.MAP_LOCATION,
+            ToolName.ROUTING,
+            ToolName.BUDGET,
+        }
+    )
+
     def __init__(
         self,
         *,
-        max_evidence_chars: int = 1400,
+        max_evidence_chars: int = 2200,
         max_observation_chars: int = 5000,
     ) -> None:
 
@@ -217,8 +227,8 @@ class TravelReasoner:
         Tool observations vẫn giữ task_id để Reasoner
         reference specialized data bằng task ID.
 
-        Research evidence đã có channel riêng,
-        nên evidence list không lặp lại tại đây.
+        RAG / Web đã có evidence channel riêng nên không được
+        đưa vào observation_task_ids.
         """
 
         output: list[
@@ -226,6 +236,12 @@ class TravelReasoner:
         ] = []
 
         for observation in observations:
+
+            if (
+                observation.tool
+                not in self._SPECIALIZED_TOOLS
+            ):
+                continue
 
             data = (
                 self._sanitize_data(
@@ -369,6 +385,27 @@ class TravelReasoner:
                 plan.research_depth.value
             ),
 
+            "subtasks": [
+                {
+                    "task_id": (
+                        task.task_id
+                    ),
+
+                    "description": (
+                        task.description
+                    ),
+
+                    "tool": (
+                        task.tool.value
+                    ),
+
+                    "required": (
+                        task.required
+                    ),
+                }
+                for task in plan.subtasks
+            ],
+
             "validation": (
                 validation_context
             ),
@@ -429,14 +466,136 @@ Rules:
     WEATHER
     BUDGET
 
-12. points should contain concise factual or recommendation statements
-    intended to be expanded later by the Synthesizer.
+12. Points should be compact structured content units, but must preserve
+    enough grounded detail for the Synthesizer to produce a useful
+    answer. Do not compress useful evidence into overly terse one-line
+    summaries.
 
 13. Do not cite an evidence item merely because it exists. Reference it
     only if that section actually uses it.
 
 14. Failed tool observations may be referenced only to explain a
     limitation, not as factual evidence.
+
+15. Every required subtask in the execution plan must be addressed in
+    the answer plan unless its tool failed or the required information
+    is unavailable.
+
+16. Do not substitute generic destination background information for a
+    requested subtask.
+
+17. Each section purpose must state which user need or required subtask
+    that section addresses.
+
+For recommendation, comparison, itinerary, and travel-planning queries:
+
+- Create enough points to cover the important dimensions of the user's
+  request.
+
+- Choose the number of useful points according to the ANSWER DEPTH
+  POLICY and the amount of grounded evidence available.
+
+- Prefer specific, actionable information over generic statements.
+
+- For attraction recommendations, explain why a place may be relevant,
+  not merely list place names.
+
+- For broad RECOMMENDATION queries asking what to visit, where to go,
+  or what to do, choose the number of distinct recommendation points
+  according to the ANSWER DEPTH POLICY and available grounded evidence.
+
+- Avoid splitting one idea into artificial filler points.
+
+- Prioritize diversity of experience when supported by evidence, such
+  as scenery, outdoor activity, city-center activity, food, cafe, or
+  night activity.
+
+- Each recommendation point should identify a place or activity and why
+  it is worth considering.
+
+- Group related places or ideas when useful.
+
+- When weather or other constraints materially affect recommendations,
+  connect those constraints to the travel advice.
+
+- Do not add detail when the evidence does not support it.
+
+GROUNDING GRANULARITY RULES:
+
+- Each point must contain only the evidence IDs that directly support
+  that specific point.
+
+- Do not attach every source used by the section to every point.
+
+- If source A supports one attraction and source B supports another,
+  do not cite both sources for both claims.
+
+- Each ReasonerPoint must independently declare its supporting
+  evidence_ids and observation_task_ids.
+
+- For RAG and Web research, use evidence_ids only. Never reference the
+  RAG or Web task_id.
+
+- observation_task_ids are reserved for specialized structured tools:
+  weather, budget, routing, and map.
+
+CITATION MINIMIZATION:
+
+- For each point, use the smallest sufficient evidence set.
+
+- If one evidence item fully supports the point, prefer that single
+  evidence item. Do not add evidence that only partially overlaps.
+
+- Use multiple evidence IDs only when different parts of the point
+  require different sources or corroboration is materially useful.
+
+CROSS-SOURCE PRACTICAL ADVICE:
+
+- When a specialized observation such as weather materially affects the
+  recommendations, include practical advice connecting them.
+
+- The advice must be a reasonable consequence of the supplied data.
+
+- Do not invent closures, safety restrictions, operating hours, or
+  unavailable conditions.
+
+FRESHNESS RULE:
+
+- For time-sensitive claims such as tomorrow's weather, current
+  conditions, current closures, current prices, or current availability,
+  prefer the corresponding fresh specialized tool or fresh Web evidence.
+
+- Do not use general or historical travel content to strengthen a
+  time-specific claim unless it is clearly presented as general context.
+
+- Keep time-specific facts and general destination context in separate
+  points when they require different sources.
+
+ANSWER DEPTH POLICY:
+
+Research depth determines the expected richness of the answer plan.
+
+BASIC:
+- Keep the answer concise and focused.
+- Use only the most important points.
+
+ENRICHED:
+- Produce a meaningfully detailed answer plan.
+- For broad travel recommendation queries, normally create 5 to 7
+  distinct recommendation points when evidence supports them.
+- Each point should preserve enough grounded detail for the final writer
+  to explain what the place or activity is, why it may be relevant, what
+  kind of experience it offers, and any useful practical consideration
+  supported by context.
+- Avoid one-line name lists when evidence provides more useful detail.
+- Include cross-cutting practical advice when weather or other
+  constraints affect the recommendations.
+
+DEEP:
+- Cover the important dimensions comprehensively.
+- Organize the answer into multiple useful sections where appropriate.
+- Include comparisons, trade-offs, practical considerations, and
+  limitations when grounded evidence supports them.
 
 INPUT CONTEXT:
 
@@ -452,8 +611,9 @@ INPUT CONTEXT:
     # REFERENCE VALIDATION
     # ========================================================
 
-    @staticmethod
+    @classmethod
     def _validate_references(
+        cls,
         *,
         output: ReasonerOutput,
         evidence: list[EvidenceItem],
@@ -475,6 +635,7 @@ INPUT CONTEXT:
         valid_task_ids = {
             item.task_id
             for item in observations
+            if item.tool in cls._SPECIALIZED_TOOLS
         }
 
         referenced_evidence_ids: set[
@@ -491,15 +652,14 @@ INPUT CONTEXT:
         )
 
         for section in output.sections:
+            for point in section.points:
+                referenced_evidence_ids.update(
+                    point.evidence_ids
+                )
 
-            referenced_evidence_ids.update(
-                section.evidence_ids
-            )
-
-            referenced_task_ids.update(
-                section
-                .observation_task_ids
-            )
+                referenced_task_ids.update(
+                    point.observation_task_ids
+                )
 
         unknown_evidence = (
             referenced_evidence_ids
@@ -550,25 +710,19 @@ INPUT CONTEXT:
         Không tin hoàn toàn LLM bookkeeping.
         """
 
-        evidence_ids = list(
-            output.used_evidence_ids
-        )
+        evidence_ids: list[str] = []
 
-        task_ids = list(
-            output
-            .used_observation_task_ids
-        )
+        task_ids: list[str] = []
 
         for section in output.sections:
+            for point in section.points:
+                evidence_ids.extend(
+                    point.evidence_ids
+                )
 
-            evidence_ids.extend(
-                section.evidence_ids
-            )
-
-            task_ids.extend(
-                section
-                .observation_task_ids
-            )
+                task_ids.extend(
+                    point.observation_task_ids
+                )
 
         evidence_ids = list(
             dict.fromkeys(
@@ -655,6 +809,8 @@ INPUT CONTEXT:
                 config=types.GenerateContentConfig(
                     temperature=0.2,
 
+                    max_output_tokens=3072,
+
                     response_mime_type=(
                         "application/json"
                     ),
@@ -685,6 +841,15 @@ INPUT CONTEXT:
             .model_validate_json(
                 response_text
             )
+        )
+
+        # Planner is the authority for intent and goal. The Reasoner
+        # controls answer structure and grounded content only.
+        output = output.model_copy(
+            update={
+                "answer_type": plan.intent.value,
+                "answer_goal": plan.goal,
+            }
         )
 
         # ====================================================
