@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,7 +49,7 @@ class Settings(BaseSettings):
     rag_rrf_bm25_weight: float = 1.0
     rag_rrf_entity_weight: float = 0.5
     
-     # ============================================================
+    # ============================================================
     # RERANKER
     # ============================================================
     rag_rerank_enabled: bool = True
@@ -56,11 +58,28 @@ class Settings(BaseSettings):
     rag_rerank_limit: int = 6
     rag_reranker_batch_size: int = 8
     rag_reranker_max_length: int = 512
+    
+    # ============================================================
+    # WEB RESEARCH
+    # ============================================================
+
+    tavily_api_key: str = ""
+
+    web_search_max_results: int = 5
+    web_search_depth: Literal[
+        "basic",
+        "advanced",
+        "fast",
+        "ultra-fast",
+    ] = "advanced"
+    web_search_chunks_per_source: int = 2   
 
     model_config = SettingsConfigDict(
         env_file=".env",
         extra="ignore",
     )
+    
+   
 
 
 settings = Settings()
