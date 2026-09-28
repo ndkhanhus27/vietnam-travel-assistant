@@ -53,6 +53,13 @@ class AgentValidator:
 
         # Structural dependency error propagated by executor.
         "DEPENDENCY_FAILED",
+
+        # Routing deterministic failures.
+        "ROUTING_MODE_UNSUPPORTED",
+        "ROUTING_INVALID_ARGUMENTS",
+        "ROUTING_ORIGIN_NOT_FOUND",
+        "ROUTING_DESTINATION_NOT_FOUND",
+        "ROUTING_NO_ROUTE",
     }
 
     # ========================================================

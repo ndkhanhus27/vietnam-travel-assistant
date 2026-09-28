@@ -31,9 +31,12 @@ from pipeline.agents.schemas import (
     Intent,
     ResearchDepth,
     RetrievalMode,
+    RoutingLocation,
+    RoutingRequest,
     StrictModel,
     SubTask,
     ToolName,
+    TravelMode,
     WeatherMode,
     WeatherRequest,
 )
@@ -723,6 +726,61 @@ Examples:
 → destination = "Đà Lạt"
 → travel_date = "ngày mai"
 
+
+TRANSPORT MODE NORMALIZATION
+
+When the user explicitly specifies a transport mode,
+normalize it to one of:
+
+car
+motorbike
+bicycle
+walking
+taxi
+bus
+train
+public_transit
+air
+ferry
+
+Examples:
+
+"đi ô tô" → transport_mode = "car"
+"đi xe đạp" → transport_mode = "bicycle"
+"đi taxi" → transport_mode = "taxi"
+"đi xe máy" → transport_mode = "motorbike"
+"đi bộ" → transport_mode = "walking"
+"đi máy bay" → transport_mode = "air"
+
+Do not invent a transport_mode if the user does not specify one.
+
+
+ROUTING REQUESTS
+
+For a routing request, identify:
+
+- origin
+- destination
+- transport_mode if explicitly stated
+
+Examples:
+
+"Từ Ga Đà Lạt đến Thác Datanla bao xa?"
+→ intent = ROUTING
+→ origin = "Ga Đà Lạt"
+→ destination = "Thác Datanla"
+
+"Đi taxi từ chợ Đà Lạt đến Hồ Tuyền Lâm mất bao lâu?"
+→ intent = ROUTING
+→ origin = "Chợ Đà Lạt"
+→ destination = "Hồ Tuyền Lâm"
+→ transport_mode = "taxi"
+
+"Chỉ đường đến Datanla"
+→ intent = ROUTING
+→ destination = "Datanla"
+→ origin is unknown
+
 RULES:
 
 - Extract only information supported by the current user message.
@@ -1019,6 +1077,88 @@ INPUT
             )
 
         return constraints
+
+    @staticmethod
+    def _constraint_value(
+        constraints: list[ExtractedConstraint],
+        key: str,
+    ) -> Any:
+        for item in reversed(constraints):
+            if item.key == key:
+                return item.value
+
+        return None
+
+    @staticmethod
+    def _resolve_travel_mode(
+        constraints: list[ExtractedConstraint],
+    ) -> TravelMode:
+        raw = TravelPlanner._constraint_value(
+            constraints,
+            "transport_mode",
+        )
+
+        if not isinstance(raw, str):
+            return TravelMode.CAR
+
+        try:
+            return TravelMode(
+                raw.strip().lower()
+            )
+        except ValueError:
+            return TravelMode.CAR
+
+    def _build_routing_task(
+        self,
+        *,
+        constraints: list[ExtractedConstraint],
+        task_id: str,
+    ) -> SubTask | None:
+        origin = self._constraint_value(
+            constraints,
+            "origin",
+        )
+        destination = self._constraint_value(
+            constraints,
+            "destination",
+        )
+
+        if (
+            not isinstance(origin, str)
+            or not origin.strip()
+        ):
+            return None
+
+        if (
+            not isinstance(destination, str)
+            or not destination.strip()
+        ):
+            return None
+
+        request = RoutingRequest(
+            origin=RoutingLocation(
+                query=origin,
+            ),
+            destination=RoutingLocation(
+                query=destination,
+            ),
+            mode=self._resolve_travel_mode(
+                constraints
+            ),
+        )
+
+        return self._task(
+            task_id=task_id,
+            description=(
+                "Tìm tuyến đường từ "
+                f"{origin.strip()} đến "
+                f"{destination.strip()}"
+            ),
+            tool=ToolName.ROUTING,
+            arguments=request.model_dump(
+                mode="json"
+            ),
+        )
 
     def _apply_clarification_policy(
         self,
@@ -1456,39 +1596,13 @@ INPUT
 
         if needs_routing:
 
-            routing_arguments = dict(
-                draft.tool_arguments.get(
-                    "routing",
-                    {},
-                )
+            routing_task = self._build_routing_task(
+                constraints=constraints,
+                task_id=next_id(),
             )
 
-            routing_arguments[
-                "query"
-            ] = query
-
-            routing_arguments[
-                "entities"
-            ] = entities
-
-            subtasks.append(
-                self._task(
-                    task_id=next_id(),
-
-                    description=(
-                        "Tìm tuyến đường và "
-                        "thông tin di chuyển"
-                    ),
-
-                    tool=(
-                        ToolName.ROUTING
-                    ),
-
-                    arguments=(
-                        routing_arguments
-                    ),
-                )
-            )
+            if routing_task is not None:
+                subtasks.append(routing_task)
 
         # ====================================================
         # BUDGET

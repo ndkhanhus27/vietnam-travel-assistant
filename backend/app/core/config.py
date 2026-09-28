@@ -89,6 +89,16 @@ class Settings(BaseSettings):
     openweather_language: str = "vi"
     openweather_geocode_country: str = "VN"
     openweather_timeout_seconds: float = 15.0
+
+    # ============================================================
+    # GOONG
+    # ============================================================
+
+    goong_api_key: str = ""
+    goong_base_url: str = "https://rsapi.goong.io"
+    goong_timeout_seconds: float = 15.0
+    goong_max_retries: int = 2
+    goong_retry_backoff_seconds: float = 0.35
     
    
 

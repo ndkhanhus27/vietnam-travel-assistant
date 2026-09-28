@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from pipeline.agents.schemas import (
     BudgetRequest,
     ResearchDepth,
@@ -11,9 +13,13 @@ from pipeline.agents.schemas import (
 )
 
 from .budget import BudgetTool
-from .knowledge import TravelKnowledgeTool
+from .map_location import MapLocationTool
+from .routing import RoutingTool
 from .weather import WeatherTool
 from .web import WebSearchTool
+
+if TYPE_CHECKING:
+    from .knowledge import TravelKnowledgeTool
 
 
 # ============================================================
@@ -37,15 +43,20 @@ class ToolRegistry:
         - web_search
         - weather
         - budget_calculator
-
-    Các tool khác sẽ được fill dần:
         - map_location
         - routing
+
+    Các tool khác sẽ được fill dần:
+        - distance_matrix
+        - trip_optimization
     """
 
     def __init__(
         self,
         web_tool: WebSearchTool | None = None,
+        *,
+        map_location_tool: MapLocationTool | None = None,
+        routing_tool: RoutingTool | None = None,
     ) -> None:
         """
         Dependencies vẫn lazy.
@@ -70,6 +81,12 @@ class ToolRegistry:
         self._budget: (
             BudgetTool | None
         ) = None
+
+        self._map_location_tool = (
+            map_location_tool
+        )
+
+        self._routing_tool = routing_tool
 
     # ========================================================
     # LAZY DEPENDENCIES
@@ -99,6 +116,10 @@ class ToolRegistry:
     ) -> TravelKnowledgeTool:
 
         if self._knowledge is None:
+
+            from .knowledge import (
+                TravelKnowledgeTool,
+            )
 
             self._knowledge = (
                 TravelKnowledgeTool(
@@ -133,6 +154,30 @@ class ToolRegistry:
             )
 
         return self._budget
+
+    @property
+    def map_location_tool(
+        self,
+    ) -> MapLocationTool:
+
+        if self._map_location_tool is None:
+
+            self._map_location_tool = (
+                MapLocationTool()
+            )
+
+        return self._map_location_tool
+
+    @property
+    def routing_tool(
+        self,
+    ) -> RoutingTool:
+
+        if self._routing_tool is None:
+
+            self._routing_tool = RoutingTool()
+
+        return self._routing_tool
 
     # ========================================================
     # FAILED OBSERVATION
@@ -485,6 +530,30 @@ class ToolRegistry:
 
                 return self._execute_budget(
                     task
+                )
+
+            if (
+                task.tool
+                == ToolName.MAP_LOCATION
+            ):
+
+                return (
+                    self.map_location_tool
+                    .execute(
+                        task
+                    )
+                )
+
+            if (
+                task.tool
+                == ToolName.ROUTING
+            ):
+
+                return (
+                    self.routing_tool
+                    .execute(
+                        task
+                    )
                 )
 
             # -----------------------------------------------

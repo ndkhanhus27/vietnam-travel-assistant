@@ -141,7 +141,218 @@ class ToolName(str, Enum):
     ROUTING = "routing"
 
     BUDGET = "budget_calculator"
-    
+
+
+# ============================================================
+# MAP LOCATION
+# ============================================================
+
+
+class MapLocationMode(str, Enum):
+    FORWARD = "forward"
+    REVERSE = "reverse"
+
+
+class GeoPoint(StrictModel):
+    lat: float = Field(
+        ge=-90.0,
+        le=90.0,
+    )
+
+    lon: float = Field(
+        ge=-180.0,
+        le=180.0,
+    )
+
+
+class MapLocationRequest(StrictModel):
+    mode: MapLocationMode = (
+        MapLocationMode.FORWARD
+    )
+
+    query: str | None = None
+
+    point: GeoPoint | None = None
+
+    limit: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+    )
+
+    @model_validator(mode="after")
+    def validate_mode_input(self) -> MapLocationRequest:
+        has_query = bool(
+            self.query
+            and self.query.strip()
+        )
+        has_point = self.point is not None
+
+        if self.mode == MapLocationMode.FORWARD:
+            if not has_query or has_point:
+                raise ValueError(
+                    "Forward map location requests require "
+                    "a non-empty query and no point."
+                )
+
+        if self.mode == MapLocationMode.REVERSE:
+            if not has_point or self.query is not None:
+                raise ValueError(
+                    "Reverse map location requests require "
+                    "a point and no query."
+                )
+
+        return self
+
+
+class MapLocationCandidate(StrictModel):
+    name: str | None = None
+
+    formatted_address: str | None = None
+
+    place_id: str | None = None
+
+    point: GeoPoint
+
+
+class MapLocationResult(StrictModel):
+    mode: MapLocationMode
+
+    query: str | None = None
+
+    point: GeoPoint | None = None
+
+    candidates: list[MapLocationCandidate] = Field(
+        default_factory=list,
+    )
+
+
+# ============================================================
+# ROUTING
+# ============================================================
+
+
+class TravelMode(str, Enum):
+    """
+    Domain-level transport mode.
+
+    Không đồng nghĩa với vehicle token của Goong.
+    """
+
+    CAR = "car"
+    MOTORBIKE = "motorbike"
+    BICYCLE = "bicycle"
+    WALKING = "walking"
+    TAXI = "taxi"
+    BUS = "bus"
+    TRAIN = "train"
+    PUBLIC_TRANSIT = "public_transit"
+    AIR = "air"
+    FERRY = "ferry"
+
+
+class RoutingLocation(StrictModel):
+    """
+    Một đầu route được mô tả bằng query hoặc point, không phải cả hai.
+    """
+
+    query: str | None = None
+    point: GeoPoint | None = None
+
+    @model_validator(mode="after")
+    def validate_location_input(self) -> RoutingLocation:
+        has_query = bool(
+            self.query
+            and self.query.strip()
+        )
+        has_point = self.point is not None
+
+        if has_query == has_point:
+            raise ValueError(
+                "RoutingLocation requires exactly one of query or point."
+            )
+
+        if self.query is not None:
+            self.query = self.query.strip()
+
+        return self
+
+
+class RoutingRequest(StrictModel):
+    origin: RoutingLocation
+    destination: RoutingLocation
+    mode: TravelMode = TravelMode.CAR
+    alternatives: bool = False
+
+
+class ResolvedRouteLocation(StrictModel):
+    query: str | None = None
+    name: str | None = None
+    formatted_address: str | None = None
+    place_id: str | None = None
+    point: GeoPoint
+
+
+class RouteStep(StrictModel):
+    instruction: str | None = None
+    maneuver: str | None = None
+    distance_meters: float = Field(
+        default=0.0,
+        ge=0.0,
+    )
+    duration_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+    )
+    start_point: GeoPoint | None = None
+    end_point: GeoPoint | None = None
+    polyline: str | None = None
+
+
+class RouteLeg(StrictModel):
+    distance_meters: float = Field(
+        default=0.0,
+        ge=0.0,
+    )
+    duration_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+    )
+    start_address: str | None = None
+    end_address: str | None = None
+    start_point: GeoPoint | None = None
+    end_point: GeoPoint | None = None
+    steps: list[RouteStep] = Field(
+        default_factory=list,
+    )
+
+
+class RouteAlternative(StrictModel):
+    distance_meters: float = Field(
+        default=0.0,
+        ge=0.0,
+    )
+    duration_seconds: float = Field(
+        default=0.0,
+        ge=0.0,
+    )
+    summary: str | None = None
+    polyline: str | None = None
+    legs: list[RouteLeg] = Field(
+        default_factory=list,
+    )
+
+
+class RoutingResult(StrictModel):
+    requested_mode: TravelMode
+    provider_vehicle: str
+    origin: ResolvedRouteLocation
+    destination: ResolvedRouteLocation
+    routes: list[RouteAlternative] = Field(
+        default_factory=list,
+    )
+
+
 # ============================================================
 # WEATHER
 # ============================================================
