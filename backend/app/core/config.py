@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     jwt_algorithm: Literal["HS256"] = "HS256"
     access_token_expire_minutes: int = Field(default=15, gt=0)
     refresh_token_expire_days: int = Field(default=30, gt=0)
+    google_client_id: str = ""
+    cors_origins: str = "http://localhost:5173"
 
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash-lite"
@@ -105,8 +107,22 @@ class Settings(BaseSettings):
     goong_timeout_seconds: float = 15.0
     goong_max_retries: int = 2
     goong_retry_backoff_seconds: float = 0.35
-    
-   
+
+    @field_validator("cors_origins")
+    @classmethod
+    def reject_wildcard_cors(cls, value: str) -> str:
+        origins = [origin.strip() for origin in value.split(",")]
+        if "*" in origins:
+            raise ValueError("CORS_ORIGINS must not contain '*'")
+        return value
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [
+            origin.strip()
+            for origin in self.cors_origins.split(",")
+            if origin.strip()
+        ]
 
 
 settings = Settings()

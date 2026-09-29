@@ -12,6 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.models import User
 from app.db.repositories.auth import AuthRepository
+from app.security.google import (
+    GoogleAuthVerifier,
+    GoogleIdentity,
+    GoogleIdentityVerifier,
+    InvalidGoogleCredentialError,
+    UnverifiedGoogleEmailError,
+)
 from app.security.password import (
     hash_password,
     needs_rehash,
@@ -82,10 +89,12 @@ class AuthService:
         session: AsyncSession,
         *,
         clock: Callable[[], datetime] | None = None,
+        google_verifier: GoogleIdentityVerifier | None = None,
     ) -> None:
         self.session = session
         self.repository = AuthRepository(session)
         self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self.google_verifier = google_verifier or GoogleAuthVerifier()
 
     async def register(
         self,
@@ -152,6 +161,61 @@ class AuthService:
             result = await self._create_session(user, self._now())
             await self.session.commit()
             return result
+        except Exception:
+            await self.session.rollback()
+            raise
+
+    async def login_with_google(self, credential: str) -> AuthResult:
+        identity = await self.google_verifier.verify(credential)
+        if not identity.email_verified:
+            raise UnverifiedGoogleEmailError("Google email is not verified")
+
+        try:
+            normalized_email = normalize_email(identity.email)
+            try:
+                _validate_email(normalized_email)
+            except InvalidEmailError as exc:
+                raise InvalidGoogleCredentialError(
+                    "Invalid Google credential"
+                ) from exc
+
+            account = await self.repository.get_google_account(
+                identity.subject
+            )
+            if account is not None:
+                user = await self.repository.get_user_by_id(account.user_id)
+                if user is None:
+                    raise InvalidGoogleCredentialError(
+                        "Invalid Google credential"
+                    )
+            else:
+                user = await self.repository.get_user_by_email(
+                    normalized_email
+                )
+                if user is None:
+                    user = await self.repository.create_user(
+                        email=normalized_email,
+                        display_name=identity.display_name,
+                        avatar_url=identity.avatar_url,
+                        is_verified=True,
+                    )
+                await self.repository.create_google_account(
+                    user_id=user.id,
+                    provider_user_id=identity.subject,
+                )
+
+            if not user.is_active:
+                raise InactiveUserError("User account is inactive")
+
+            await self._merge_google_profile(user, identity)
+            result = await self._create_session(user, self._now())
+            await self.session.commit()
+            return result
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise InvalidGoogleCredentialError(
+                "Google account could not be linked"
+            ) from exc
         except Exception:
             await self.session.rollback()
             raise
@@ -262,6 +326,28 @@ class AuthService:
                 settings.access_token_expire_minutes * 60
             ),
         )
+
+    async def _merge_google_profile(
+        self,
+        user: User,
+        identity: GoogleIdentity,
+    ) -> None:
+        if not user.is_verified:
+            await self.repository.set_user_verified(user, True)
+        if user.display_name is None or user.avatar_url is None:
+            await self.repository.update_user_profile(
+                user,
+                display_name=(
+                    identity.display_name
+                    if user.display_name is None
+                    else None
+                ),
+                avatar_url=(
+                    identity.avatar_url
+                    if user.avatar_url is None
+                    else None
+                ),
+            )
 
     def _now(self) -> datetime:
         now = self._clock()

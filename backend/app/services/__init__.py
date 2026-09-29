@@ -12,6 +12,11 @@ from app.services.auth import (
     UserNotFoundError,
     normalize_email,
 )
+from app.security.google import (
+    GoogleAuthError,
+    InvalidGoogleCredentialError,
+    UnverifiedGoogleEmailError,
+)
 
 __all__ = [
     "AuthError",
@@ -19,11 +24,14 @@ __all__ = [
     "AuthService",
     "EmailAlreadyRegisteredError",
     "ExpiredRefreshTokenError",
+    "GoogleAuthError",
     "InactiveUserError",
     "InvalidCredentialsError",
     "InvalidEmailError",
+    "InvalidGoogleCredentialError",
     "InvalidRefreshTokenError",
     "PasswordPolicyError",
     "UserNotFoundError",
+    "UnverifiedGoogleEmailError",
     "normalize_email",
 ]
