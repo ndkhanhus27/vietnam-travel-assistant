@@ -52,8 +52,10 @@ class HybridRetriever:
     """
 
     def __init__(self) -> None:
-        self.dense = DenseRetriever()
+        # Load the Qdrant-backed lexical index first. If Qdrant is down,
+        # fail before allocating the much heavier embedding model.
         self.bm25 = QdrantBm25Index()
+        self.dense = DenseRetriever()
 
     # ============================================================
     # ENTITY SIGNAL
