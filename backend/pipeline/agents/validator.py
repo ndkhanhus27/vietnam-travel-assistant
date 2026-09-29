@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pipeline.agents.schemas import (
     EvidenceItem,
+    EvidenceSource,
     ExecutionPlan,
+    Intent,
     TaskStatus,
     ToolName,
     ToolObservation,
@@ -60,6 +62,11 @@ class AgentValidator:
         "ROUTING_ORIGIN_NOT_FOUND",
         "ROUTING_DESTINATION_NOT_FOUND",
         "ROUTING_NO_ROUTE",
+
+        # Distance Matrix deterministic failures.
+        "DISTANCE_MATRIX_MODE_UNSUPPORTED",
+        "DISTANCE_MATRIX_INVALID_ARGUMENTS",
+        "DISTANCE_MATRIX_LOCATION_NOT_FOUND",
     }
 
     # ========================================================
@@ -290,6 +297,104 @@ class AgentValidator:
             )
 
         return issues
+
+    # ========================================================
+    # CURRENT INFO GROUNDING
+    # ========================================================
+
+    @staticmethod
+    def _validate_current_info(
+        *,
+        plan: ExecutionPlan,
+        observations: list[ToolObservation],
+        research_evidence: list[EvidenceItem],
+    ) -> list[ValidationIssue]:
+        if plan.intent != Intent.CURRENT_INFO:
+            return []
+
+        web_tasks = [
+            task
+            for task in plan.subtasks
+            if task.tool == ToolName.WEB_SEARCH
+        ]
+
+        if not web_tasks:
+            return [
+                ValidationIssue(
+                    code="CURRENT_INFO_WEB_TASK_MISSING",
+                    message=(
+                        "CURRENT_INFO requires a Web Search task."
+                    ),
+                    recoverable=False,
+                )
+            ]
+
+        web_task_ids = {
+            task.task_id
+            for task in web_tasks
+        }
+        successful_web = [
+            observation
+            for observation in observations
+            if (
+                observation.task_id in web_task_ids
+                and observation.tool == ToolName.WEB_SEARCH
+                and observation.status == TaskStatus.SUCCESS
+            )
+        ]
+
+        if not successful_web:
+            return [
+                ValidationIssue(
+                    code="CURRENT_INFO_WEB_FAILED",
+                    message=(
+                        "CURRENT_INFO Web Search did not complete "
+                        "successfully."
+                    ),
+                    task_id=web_tasks[0].task_id,
+                    recoverable=True,
+                )
+            ]
+
+        web_evidence = [
+            item
+            for item in research_evidence
+            if item.source_type == EvidenceSource.WEB
+        ]
+
+        if not web_evidence:
+            return [
+                ValidationIssue(
+                    code="CURRENT_INFO_WEB_EVIDENCE_MISSING",
+                    message=(
+                        "CURRENT_INFO Web Search produced no "
+                        "aggregated Web evidence."
+                    ),
+                    task_id=successful_web[0].task_id,
+                    recoverable=True,
+                )
+            ]
+
+        has_valid_evidence = any(
+            bool(item.url and item.url.strip())
+            and bool(item.content.strip())
+            for item in web_evidence
+        )
+
+        if not has_valid_evidence:
+            return [
+                ValidationIssue(
+                    code="CURRENT_INFO_WEB_EVIDENCE_INVALID",
+                    message=(
+                        "CURRENT_INFO Web evidence requires a URL "
+                        "and non-empty content."
+                    ),
+                    task_id=successful_web[0].task_id,
+                    recoverable=False,
+                )
+            ]
+
+        return []
 
     # ========================================================
     # ENTITY COVERAGE
@@ -530,6 +635,7 @@ class AgentValidator:
             ToolName.WEATHER,
             ToolName.ROUTING,
             ToolName.MAP_LOCATION,
+            ToolName.DISTANCE_MATRIX,
             ToolName.BUDGET,
         }
 
@@ -623,6 +729,14 @@ class AgentValidator:
                 research_evidence=(
                     research_evidence
                 ),
+            )
+        )
+
+        issues.extend(
+            self._validate_current_info(
+                plan=plan,
+                observations=observations,
+                research_evidence=research_evidence,
             )
         )
 

@@ -4,10 +4,13 @@ import json
 import re
 from typing import Any
 
-from google import genai
 from google.genai import types
 
 from app.core.config import settings
+
+from pipeline.agents.llm_runtime import (
+    GeminiRuntime,
+)
 
 from pipeline.agents.schemas import (
     AgentResponse,
@@ -21,6 +24,45 @@ from pipeline.agents.schemas import (
     ToolObservation,
     ValidationResult,
 )
+
+
+# ============================================================
+# SOURCE / CLAIM CALIBRATION
+# ============================================================
+
+_SOURCE_CLAIM_CALIBRATION = """
+SOURCE AND CLAIM CALIBRATION
+
+You must calibrate wording to the strength of the supplied evidence.
+
+General rules:
+
+1. Never strengthen a claim beyond what the evidence supports.
+
+2. Do NOT describe information as:
+   - "official"
+   - "officially confirmed"
+   - "chính thức"
+   - "được xác nhận chính thức"
+   - "niêm yết"
+   - "giá niêm yết"
+   unless the supporting evidence itself clearly establishes that the
+   information comes from the relevant official organization, operator,
+   authority, or first-party source.
+
+3. If the supporting evidence comes from third-party websites, use
+   neutral wording such as:
+   - "Các nguồn hiện tìm được ghi nhận..."
+   - "Theo các nguồn web được truy xuất..."
+   - "Mức giá được các nguồn tham khảo ghi nhận..."
+
+4. For prices, opening hours, operating status, and temporary events,
+   recommend direct verification when the evidence is not clearly from
+   an official source.
+
+5. Never invent a source authority level that is not present in the
+   evidence.
+""".strip()
 
 
 # ============================================================
@@ -99,14 +141,12 @@ class TravelSynthesizer:
         self,
         *,
         max_evidence_chars: int = 2200,
+        llm_runtime: GeminiRuntime | None = None,
     ) -> None:
-        if not settings.gemini_api_key:
-            raise RuntimeError(
-                "GEMINI_API_KEY chưa được cấu hình."
-            )
-
-        self.client = genai.Client(
-            api_key=settings.gemini_api_key
+        self.llm_runtime = (
+            llm_runtime
+            if llm_runtime is not None
+            else GeminiRuntime()
         )
 
         self.model = settings.gemini_model
@@ -350,6 +390,8 @@ FRESHNESS POLICY:
 
 - Do not merge general destination background with a time-specific claim
   as though both describe the same time period.
+
+{_SOURCE_CLAIM_CALIBRATION}
 
 For travel recommendations:
 
@@ -772,7 +814,7 @@ INPUT CONTEXT:
             validation=validation,
         )
 
-        response = self.client.models.generate_content(
+        response = self.llm_runtime.generate_content(
             model=self.model,
             contents=prompt,
             config=types.GenerateContentConfig(

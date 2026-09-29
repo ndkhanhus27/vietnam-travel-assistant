@@ -4,7 +4,6 @@ import argparse
 import json
 from typing import Any
 
-from google import genai
 from google.genai import types
 from pydantic import (
     BaseModel,
@@ -22,6 +21,10 @@ from pipeline.agents.clarification import (
 from pipeline.agents.context import (
     ContextBuilder,
     ConversationContext,
+)
+
+from pipeline.agents.llm_runtime import (
+    GeminiRuntime,
 )
 
 from pipeline.agents.schemas import (
@@ -198,15 +201,13 @@ class TravelPlanner:
         context_builder: (
             ContextBuilder | None
         ) = None,
+        llm_runtime: GeminiRuntime | None = None,
     ) -> None:
 
-        if not settings.gemini_api_key:
-            raise RuntimeError(
-                "GEMINI_API_KEY chưa được cấu hình."
-            )
-
-        self.client = genai.Client(
-            api_key=settings.gemini_api_key
+        self.llm_runtime = (
+            llm_runtime
+            if llm_runtime is not None
+            else GeminiRuntime()
         )
 
         self.clarification_policy = (
@@ -357,15 +358,44 @@ ROUTING
 
 CURRENT_INFO
 
-Thông tin freshness-sensitive:
+Use CURRENT_INFO when the user asks for information whose correct
+value may change over time and should be checked from current external
+sources.
 
-- giá hiện tại
-- giá vé hiện tại
-- giờ mở cửa hiện tại
-- đóng/mở hiện tại
-- sự kiện đang diễn ra
-- tình trạng hôm nay
-- thông tin mới nhất
+Examples include:
+
+- current ticket or admission prices
+- current opening hours
+- temporary closures
+- current operating status
+- current festivals or events
+- recent changes to an attraction
+- current rules or access conditions
+
+CURRENT_INFO requires:
+
+- freshness_required = true
+- needs_web_search = true
+- Web Search as the primary information source
+
+Do not classify stable descriptive travel knowledge as CURRENT_INFO.
+
+Examples:
+
+"Datanla có gì?"
+→ FACTUAL_TRAVEL
+
+"Giá vé Datanla hiện tại bao nhiêu?"
+→ CURRENT_INFO
+
+"Datanla mở cửa lúc mấy giờ?"
+→ CURRENT_INFO
+
+"Đà Lạt có khí hậu như thế nào?"
+→ FACTUAL_TRAVEL
+
+"Festival Huế năm nay diễn ra khi nào?"
+→ CURRENT_INFO
 
 
 ------------------------------------------------------------
@@ -903,10 +933,10 @@ INPUT
         context: (
             ConversationContext | None
         ) = None,
-    ) -> PlannerDraft:
+        ) -> PlannerDraft:
 
         response = (
-            self.client.models.generate_content(
+            self.llm_runtime.generate_content(
                 model=settings.gemini_model,
 
                 contents=self._build_prompt(
@@ -1160,6 +1190,44 @@ INPUT
             ),
         )
 
+    def _build_current_info_task(
+        self,
+        *,
+        query: str,
+        entities: list[str],
+        task_id: str,
+    ) -> SubTask:
+        search_query = query.strip()
+        clean_entities = self._unique_strings(
+            entities
+        )
+
+        if clean_entities:
+            entity_text = " ".join(clean_entities)
+
+            if (
+                entity_text
+                and entity_text.casefold()
+                not in search_query.casefold()
+            ):
+                search_query = (
+                    f"{entity_text}: {search_query}"
+                )
+
+        arguments: dict[str, Any] = {
+            "query": search_query,
+        }
+
+        if len(clean_entities) == 1:
+            arguments["entity"] = clean_entities[0]
+
+        return self._task(
+            task_id=task_id,
+            description="Tìm thông tin fresh/current",
+            tool=ToolName.WEB_SEARCH,
+            arguments=arguments,
+        )
+
     def _apply_clarification_policy(
         self,
         plan: ExecutionPlan,
@@ -1267,6 +1335,11 @@ INPUT
             SubTask
         ] = []
 
+        pure_current_info = (
+            draft.intent == Intent.CURRENT_INFO
+            and not draft.is_compound
+        )
+
         task_number = 1
 
         # ----------------------------------------------------
@@ -1346,6 +1419,9 @@ INPUT
             }
         )
 
+        if pure_current_info:
+            needs_rag = False
+
         if needs_rag:
 
             rag_arguments = dict(
@@ -1397,6 +1473,9 @@ INPUT
             or draft.intent
             == Intent.WEATHER
         )
+
+        if pure_current_info:
+            needs_weather = False
 
         if needs_weather:
 
@@ -1541,46 +1620,11 @@ INPUT
         )
 
         if needs_web:
-
-            web_arguments = dict(
-                draft.tool_arguments.get(
-                    "web_search",
-                    {},
-                )
-            )
-
-            # Luôn giữ original query.
-            web_arguments[
-                "query"
-            ] = query
-
-            if (
-                not web_arguments.get(
-                    "entity"
-                )
-                and len(entities) == 1
-            ):
-
-                web_arguments[
-                    "entity"
-                ] = entities[0]
-
             subtasks.append(
-                self._task(
+                self._build_current_info_task(
                     task_id=next_id(),
-
-                    description=(
-                        "Tìm thông tin "
-                        "fresh/current"
-                    ),
-
-                    tool=(
-                        ToolName.WEB_SEARCH
-                    ),
-
-                    arguments=(
-                        web_arguments
-                    ),
+                    query=query,
+                    entities=entities,
                 )
             )
 
@@ -1593,6 +1637,9 @@ INPUT
             or draft.intent
             == Intent.ROUTING
         )
+
+        if pure_current_info:
+            needs_routing = False
 
         if needs_routing:
 
@@ -1613,6 +1660,9 @@ INPUT
             or draft.intent
             == Intent.BUDGET
         )
+
+        if pure_current_info:
+            needs_budget = False
 
         if needs_budget:
 
@@ -1790,7 +1840,9 @@ INPUT
         # ====================================================
 
         freshness_required = (
-            draft.freshness_required
+            draft.intent
+            == Intent.CURRENT_INFO
+            or draft.freshness_required
             or needs_weather
             or needs_web
             or needs_routing

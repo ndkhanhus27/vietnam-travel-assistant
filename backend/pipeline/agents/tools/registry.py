@@ -13,6 +13,7 @@ from pipeline.agents.schemas import (
 )
 
 from .budget import BudgetTool
+from .distance_matrix import DistanceMatrixTool
 from .map_location import MapLocationTool
 from .routing import RoutingTool
 from .weather import WeatherTool
@@ -45,9 +46,9 @@ class ToolRegistry:
         - budget_calculator
         - map_location
         - routing
+        - distance_matrix
 
     Các tool khác sẽ được fill dần:
-        - distance_matrix
         - trip_optimization
     """
 
@@ -57,6 +58,7 @@ class ToolRegistry:
         *,
         map_location_tool: MapLocationTool | None = None,
         routing_tool: RoutingTool | None = None,
+        distance_matrix_tool: DistanceMatrixTool | None = None,
     ) -> None:
         """
         Dependencies vẫn lazy.
@@ -87,6 +89,8 @@ class ToolRegistry:
         )
 
         self._routing_tool = routing_tool
+
+        self._distance_matrix_tool = distance_matrix_tool
 
     # ========================================================
     # LAZY DEPENDENCIES
@@ -178,6 +182,19 @@ class ToolRegistry:
             self._routing_tool = RoutingTool()
 
         return self._routing_tool
+
+    @property
+    def distance_matrix_tool(
+        self,
+    ) -> DistanceMatrixTool:
+
+        if self._distance_matrix_tool is None:
+
+            self._distance_matrix_tool = (
+                DistanceMatrixTool()
+            )
+
+        return self._distance_matrix_tool
 
     # ========================================================
     # FAILED OBSERVATION
@@ -551,6 +568,18 @@ class ToolRegistry:
 
                 return (
                     self.routing_tool
+                    .execute(
+                        task
+                    )
+                )
+
+            if (
+                task.tool
+                == ToolName.DISTANCE_MATRIX
+            ):
+
+                return (
+                    self.distance_matrix_tool
                     .execute(
                         task
                     )

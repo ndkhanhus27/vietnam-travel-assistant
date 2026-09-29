@@ -3,10 +3,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from google import genai
 from google.genai import types
 
 from app.core.config import settings
+
+from pipeline.agents.llm_runtime import (
+    GeminiRuntime,
+)
 
 from pipeline.agents.schemas import (
     EvidenceItem,
@@ -63,16 +66,13 @@ class TravelReasoner:
         *,
         max_evidence_chars: int = 2200,
         max_observation_chars: int = 5000,
+        llm_runtime: GeminiRuntime | None = None,
     ) -> None:
 
-        if not settings.gemini_api_key:
-
-            raise RuntimeError(
-                "GEMINI_API_KEY chưa được cấu hình."
-            )
-
-        self.client = genai.Client(
-            api_key=settings.gemini_api_key
+        self.llm_runtime = (
+            llm_runtime
+            if llm_runtime is not None
+            else GeminiRuntime()
         )
 
         self.model = (
@@ -800,8 +800,7 @@ INPUT CONTEXT:
         # ====================================================
 
         response = (
-            self.client.models
-            .generate_content(
+            self.llm_runtime.generate_content(
                 model=self.model,
 
                 contents=prompt,

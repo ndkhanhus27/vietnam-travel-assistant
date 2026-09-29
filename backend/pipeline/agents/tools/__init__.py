@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .budget import BudgetTool
+from .distance_matrix import DistanceMatrixTool
 from .map_location import MapLocationTool
 from .routing import RoutingTool
 from .registry import ToolRegistry
@@ -40,6 +41,7 @@ __all__ = [
     "BudgetTool",
     "MapLocationTool",
     "RoutingTool",
+    "DistanceMatrixTool",
     "ToolRegistry",
     "ResearchEvidenceAggregator",
     "EvidenceAggregator",

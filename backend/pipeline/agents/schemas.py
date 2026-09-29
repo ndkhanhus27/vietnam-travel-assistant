@@ -140,6 +140,8 @@ class ToolName(str, Enum):
 
     ROUTING = "routing"
 
+    DISTANCE_MATRIX = "distance_matrix"
+
     BUDGET = "budget_calculator"
 
 
@@ -351,6 +353,109 @@ class RoutingResult(StrictModel):
     routes: list[RouteAlternative] = Field(
         default_factory=list,
     )
+
+
+# ============================================================
+# DISTANCE MATRIX
+# ============================================================
+
+
+class DistanceMatrixRequest(StrictModel):
+    """
+    N origins x M destinations.
+
+    The 10-location cap on each axis is an application guard,
+    not a statement about the provider limit.
+    """
+
+    origins: list[RoutingLocation] = Field(
+        min_length=1,
+        max_length=10,
+    )
+    destinations: list[RoutingLocation] = Field(
+        min_length=1,
+        max_length=10,
+    )
+    mode: TravelMode = TravelMode.CAR
+
+
+class DistanceMatrixElement(StrictModel):
+    """One origin[i] -> destination[j] matrix cell."""
+
+    origin_index: int = Field(ge=0)
+    destination_index: int = Field(ge=0)
+    status: str = Field(min_length=1)
+    distance_meters: int | None = Field(
+        default=None,
+        ge=0,
+    )
+    duration_seconds: int | None = Field(
+        default=None,
+        ge=0,
+    )
+
+
+class DistanceMatrixRow(StrictModel):
+    origin_index: int = Field(ge=0)
+    elements: list[DistanceMatrixElement] = Field(
+        min_length=1,
+        max_length=10,
+    )
+
+
+class DistanceMatrixResult(StrictModel):
+    requested_mode: TravelMode
+    provider: str = "goong"
+    provider_vehicle: str
+    origins: list[ResolvedRouteLocation] = Field(
+        min_length=1,
+        max_length=10,
+    )
+    destinations: list[ResolvedRouteLocation] = Field(
+        min_length=1,
+        max_length=10,
+    )
+    rows: list[DistanceMatrixRow] = Field(
+        min_length=1,
+        max_length=10,
+    )
+
+    @model_validator(mode="after")
+    def validate_matrix_shape(self) -> DistanceMatrixResult:
+        if len(self.rows) != len(self.origins):
+            raise ValueError(
+                "Distance matrix row count must match origins."
+            )
+
+        destination_count = len(self.destinations)
+
+        for origin_index, row in enumerate(self.rows):
+            if row.origin_index != origin_index:
+                raise ValueError(
+                    "Distance matrix rows must use contiguous "
+                    "origin indexes."
+                )
+
+            if len(row.elements) != destination_count:
+                raise ValueError(
+                    "Each distance matrix row must contain one "
+                    "element per destination."
+                )
+
+            for destination_index, element in enumerate(
+                row.elements
+            ):
+                if (
+                    element.origin_index != origin_index
+                    or element.destination_index
+                    != destination_index
+                ):
+                    raise ValueError(
+                        "Distance matrix element indexes do not "
+                        "match their row and column positions."
+                    )
+
+        return self
 
 
 # ============================================================

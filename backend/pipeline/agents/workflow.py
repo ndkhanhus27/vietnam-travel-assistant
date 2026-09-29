@@ -19,6 +19,10 @@ from pipeline.agents.executor import (
     ToolExecutor,
 )
 
+from pipeline.agents.llm_runtime import (
+    GeminiRuntime,
+)
+
 from pipeline.agents.planner import (
     TravelPlanner,
 )
@@ -104,7 +108,22 @@ class TravelAgentWorkflow:
         validator: AgentValidator | None = None,
         reasoner: TravelReasoner | None = None,
         synthesizer: TravelSynthesizer | None = None,
+        llm_runtime: GeminiRuntime | None = None,
     ) -> None:
+
+        runtime = llm_runtime
+
+        if (
+            runtime is None
+            and (
+                planner is None
+                or reasoner is None
+                or synthesizer is None
+            )
+        ):
+            runtime = GeminiRuntime()
+
+        self.llm_runtime = runtime
 
         self.context_builder = (
             context_builder
@@ -118,7 +137,8 @@ class TravelAgentWorkflow:
             else TravelPlanner(
                 context_builder=(
                     self.context_builder
-                )
+                ),
+                llm_runtime=runtime,
             )
         )
 
@@ -143,13 +163,17 @@ class TravelAgentWorkflow:
         self.reasoner = (
             reasoner
             if reasoner is not None
-            else TravelReasoner()
+            else TravelReasoner(
+                llm_runtime=runtime
+            )
         )
 
         self.synthesizer = (
             synthesizer
             if synthesizer is not None
-            else TravelSynthesizer()
+            else TravelSynthesizer(
+                llm_runtime=runtime
+            )
         )
 
         self.graph = (
