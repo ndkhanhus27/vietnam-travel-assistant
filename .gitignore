@@ -5,3 +5,10 @@ __pycache__/
 .kiro/
 .cache/
 frontend/ 
+node_modules/
+dist/
+*.zip
+/package-lock.json
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
