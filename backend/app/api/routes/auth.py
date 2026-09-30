@@ -4,7 +4,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response, status
 
-from app.api.dependencies import get_auth_service, get_current_user
+from app.api.dependencies import (
+    enforce_auth_rate_limit,
+    get_auth_service,
+    get_current_user,
+)
 from app.api.schemas import (
     AuthResponse,
     GoogleLoginRequest,
@@ -24,9 +28,11 @@ router = APIRouter(prefix="/auth", tags=["authentication"])
     "/register",
     response_model=AuthResponse,
     status_code=status.HTTP_201_CREATED,
+    responses={429: {"description": "Rate limit exceeded"}},
 )
 async def register(
     payload: RegisterRequest,
+    _: Annotated[None, Depends(enforce_auth_rate_limit)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
     result = await service.register(
@@ -37,9 +43,14 @@ async def register(
     return AuthResponse.from_result(result)
 
 
-@router.post("/login", response_model=AuthResponse)
+@router.post(
+    "/login",
+    response_model=AuthResponse,
+    responses={429: {"description": "Rate limit exceeded"}},
+)
 async def login(
     payload: LoginRequest,
+    _: Annotated[None, Depends(enforce_auth_rate_limit)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
     return AuthResponse.from_result(
@@ -47,9 +58,14 @@ async def login(
     )
 
 
-@router.post("/google", response_model=AuthResponse)
+@router.post(
+    "/google",
+    response_model=AuthResponse,
+    responses={429: {"description": "Rate limit exceeded"}},
+)
 async def google_login(
     payload: GoogleLoginRequest,
+    _: Annotated[None, Depends(enforce_auth_rate_limit)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
     return AuthResponse.from_result(
@@ -57,9 +73,14 @@ async def google_login(
     )
 
 
-@router.post("/refresh", response_model=AuthResponse)
+@router.post(
+    "/refresh",
+    response_model=AuthResponse,
+    responses={429: {"description": "Rate limit exceeded"}},
+)
 async def refresh(
     payload: RefreshRequest,
+    _: Annotated[None, Depends(enforce_auth_rate_limit)],
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
     return AuthResponse.from_result(

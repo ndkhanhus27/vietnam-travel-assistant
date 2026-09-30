@@ -18,6 +18,18 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     cors_origins: str = "http://localhost:5173"
 
+    redis_enabled: bool = False
+    redis_url: str = "redis://localhost:6379/0"
+    redis_connect_timeout_seconds: float = Field(default=2.0, gt=0)
+    rate_limit_enabled: bool = True
+    rate_limit_chat_requests: int = Field(default=10, gt=0)
+    rate_limit_chat_window_seconds: int = Field(default=60, gt=0)
+    rate_limit_auth_requests: int = Field(default=10, gt=0)
+    rate_limit_auth_window_seconds: int = Field(default=60, gt=0)
+    cache_default_ttl_seconds: int = Field(default=300, gt=0)
+    cache_weather_ttl_seconds: int = Field(default=600, gt=0)
+    cache_geocode_ttl_seconds: int = Field(default=86_400, gt=0)
+
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash-lite"
 
