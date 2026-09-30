@@ -73,6 +73,15 @@ class ConversationRepository:
         await self.session.flush()
         return conversation
 
+    async def update_conversation_context(
+        self,
+        conversation: Conversation,
+        context_state: dict[str, Any],
+    ) -> Conversation:
+        conversation.context_state = context_state
+        await self.session.flush()
+        return conversation
+
     async def archive_conversation(
         self,
         conversation: Conversation,
@@ -206,6 +215,9 @@ class ConversationRepository:
         tools_used: list[str] | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        intent: str | None = None,
+        retrieval_mode: str | None = None,
+        model_name: str | None = None,
         completed_at: datetime | None = None,
     ) -> AgentRun:
         agent_run.status = status
@@ -215,6 +227,12 @@ class ConversationRepository:
         agent_run.tools_used = tools_used
         agent_run.error_code = error_code
         agent_run.error_message = error_message
+        if intent is not None:
+            agent_run.intent = intent
+        if retrieval_mode is not None:
+            agent_run.retrieval_mode = retrieval_mode
+        if model_name is not None:
+            agent_run.model_name = model_name
         agent_run.completed_at = completed_at or datetime.now(timezone.utc)
         await self.session.flush()
         return agent_run

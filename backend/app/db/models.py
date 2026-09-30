@@ -403,6 +403,10 @@ class Conversation(Base):
         default=False,
         server_default=text("false"),
     )
+    context_state: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB,
+        nullable=True,
+    )
 
     user: Mapped[User] = relationship(back_populates="conversations")
     messages: Mapped[list[Message]] = relationship(

@@ -17,11 +17,26 @@ from app.security.google import (
     InvalidGoogleCredentialError,
     UnverifiedGoogleEmailError,
 )
+from app.services.chat import (
+    ChatError,
+    ChatResult,
+    ChatService,
+    ChatStreamEvent,
+    ChatWorkflowError,
+    ConversationNotFoundError,
+    InvalidChatMessageError,
+)
 
 __all__ = [
     "AuthError",
     "AuthResult",
     "AuthService",
+    "ChatError",
+    "ChatResult",
+    "ChatService",
+    "ChatStreamEvent",
+    "ChatWorkflowError",
+    "ConversationNotFoundError",
     "EmailAlreadyRegisteredError",
     "ExpiredRefreshTokenError",
     "GoogleAuthError",
@@ -29,6 +44,7 @@ __all__ = [
     "InvalidCredentialsError",
     "InvalidEmailError",
     "InvalidGoogleCredentialError",
+    "InvalidChatMessageError",
     "InvalidRefreshTokenError",
     "PasswordPolicyError",
     "UserNotFoundError",
