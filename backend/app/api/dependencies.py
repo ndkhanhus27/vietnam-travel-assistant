@@ -3,15 +3,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Security, status
+from fastapi import Depends, HTTPException, Request, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.db.models import User
+from app.db.repositories.conversations import ConversationRepository
 from app.db.session import AsyncSessionFactory
 from app.security.google import GoogleAuthVerifier, GoogleIdentityVerifier
 from app.security.tokens import TokenError, decode_access_token
 from app.services.auth import AuthService, InactiveUserError, UserNotFoundError
+from app.services.chat import ChatService, WorkflowRunner
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -34,6 +35,26 @@ def get_auth_service(
     ],
 ) -> AuthService:
     return AuthService(session, google_verifier=google_verifier)
+
+
+def get_travel_workflow(request: Request) -> WorkflowRunner:
+    workflow = getattr(request.app.state, "travel_workflow", None)
+    if workflow is None:
+        raise RuntimeError("Travel workflow is not initialized")
+    return workflow
+
+
+def get_chat_service(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    workflow: Annotated[WorkflowRunner, Depends(get_travel_workflow)],
+) -> ChatService:
+    return ChatService(session, workflow)
+
+
+def get_conversation_repository(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> ConversationRepository:
+    return ConversationRepository(session)
 
 
 async def get_current_user(

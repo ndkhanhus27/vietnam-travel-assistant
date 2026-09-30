@@ -5,16 +5,29 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.errors import register_auth_exception_handlers
-from app.api.routes import auth_router, users_router
+from app.api.errors import (
+    register_auth_exception_handlers,
+    register_chat_exception_handlers,
+)
+from app.api.routes import (
+    auth_router,
+    chat_router,
+    conversations_router,
+    users_router,
+)
 from app.core.config import settings
 from app.db.session import close_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    yield
-    await close_db()
+    from pipeline.agents.workflow import build_workflow
+
+    app.state.travel_workflow = build_workflow()
+    try:
+        yield
+    finally:
+        await close_db()
 
 
 app = FastAPI(
@@ -31,5 +44,8 @@ app.add_middleware(
 )
 
 register_auth_exception_handlers(app)
+register_chat_exception_handlers(app)
 app.include_router(auth_router, prefix="/api/v1")
+app.include_router(conversations_router, prefix="/api/v1")
+app.include_router(chat_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")

@@ -16,6 +16,11 @@ from app.services.auth import (
     InvalidRefreshTokenError,
     PasswordPolicyError,
 )
+from app.services.chat import (
+    ChatWorkflowError,
+    ConversationNotFoundError,
+    InvalidChatMessageError,
+)
 
 
 def register_auth_exception_handlers(app: FastAPI) -> None:
@@ -37,6 +42,18 @@ def register_auth_exception_handlers(app: FastAPI) -> None:
         UnverifiedGoogleEmailError,
         _invalid_google_credential,
     )
+
+
+def register_chat_exception_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(
+        ConversationNotFoundError,
+        _conversation_not_found,
+    )
+    app.add_exception_handler(
+        InvalidChatMessageError,
+        _invalid_chat_message,
+    )
+    app.add_exception_handler(ChatWorkflowError, _chat_workflow_failed)
 
 
 async def _email_already_registered(
@@ -91,6 +108,33 @@ async def _invalid_google_credential(
         status.HTTP_401_UNAUTHORIZED,
         "Invalid Google credential",
         authenticate=True,
+    )
+
+
+async def _conversation_not_found(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    return _response(status.HTTP_404_NOT_FOUND, "Conversation not found")
+
+
+async def _invalid_chat_message(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    return _response(
+        status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "Invalid message content",
+    )
+
+
+async def _chat_workflow_failed(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    return _response(
+        status.HTTP_502_BAD_GATEWAY,
+        "Unable to complete the assistant response.",
     )
 
 

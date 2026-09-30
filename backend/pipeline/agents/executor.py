@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from typing import Any
 
 from pipeline.agents.schemas import (
     ExecutionPlan,
@@ -261,6 +263,7 @@ class ToolExecutor:
         task: SubTask,
         plan: ExecutionPlan,
         semaphore: asyncio.Semaphore,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> ToolObservation:
         """
         Execute one synchronous ToolRegistry call
@@ -272,6 +275,16 @@ class ToolExecutor:
 
         async with semaphore:
 
+            if event_sink is not None:
+                event_sink(
+                    {
+                        "type": "tool",
+                        "tool": task.tool.value,
+                        "task_id": task.task_id,
+                        "status": "started",
+                    }
+                )
+
             observation = (
                 await asyncio.to_thread(
                     self.registry.execute,
@@ -281,6 +294,20 @@ class ToolExecutor:
                     ),
                 )
             )
+
+            if event_sink is not None:
+                event_sink(
+                    {
+                        "type": "tool",
+                        "tool": task.tool.value,
+                        "task_id": task.task_id,
+                        "status": (
+                            "completed"
+                            if observation.status == TaskStatus.SUCCESS
+                            else "failed"
+                        ),
+                    }
+                )
 
             return observation
 
@@ -294,6 +321,7 @@ class ToolExecutor:
         tasks: list[SubTask],
         plan: ExecutionPlan,
         semaphore: asyncio.Semaphore,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[
         tuple[
             str,
@@ -310,6 +338,7 @@ class ToolExecutor:
                 task=task,
                 plan=plan,
                 semaphore=semaphore,
+                event_sink=event_sink,
             )
             for task in tasks
         ]
@@ -340,6 +369,8 @@ class ToolExecutor:
     async def execute(
         self,
         plan: ExecutionPlan,
+        *,
+        event_sink: Callable[[dict[str, Any]], None] | None = None,
     ) -> list[ToolObservation]:
         """
         Execute toàn bộ ExecutionPlan.
@@ -472,6 +503,7 @@ class ToolExecutor:
                         tasks=runnable_tasks,
                         plan=plan,
                         semaphore=semaphore,
+                        event_sink=event_sink,
                     )
                 )
 

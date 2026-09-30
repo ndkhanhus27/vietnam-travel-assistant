@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from typing import Any, cast
 
+from langgraph.config import get_stream_writer
 from langgraph.graph import (
     END,
     START,
@@ -55,6 +57,14 @@ from pipeline.agents.validator import (
 
 
 MAX_RETRIES = 1
+
+PUBLIC_STAGE_MESSAGES = {
+    "planning": "Đang phân tích yêu cầu",
+    "retrieving": "Đang tìm thông tin du lịch",
+    "validating": "Đang kiểm tra thông tin",
+    "reasoning": "Đang sắp xếp thông tin",
+    "generating": "Đang chuẩn bị câu trả lời",
+}
 
 
 # ============================================================
@@ -385,7 +395,8 @@ class TravelAgentWorkflow:
 
         observations = (
             await self.executor.execute(
-                plan
+                plan,
+                event_sink=get_stream_writer(),
             )
         )
 
@@ -907,15 +918,7 @@ class TravelAgentWorkflow:
         Production-style async execution.
         """
 
-        initial_state: AgentState = {
-            "query": query,
-            "retry_count": 0,
-            "conversation_context": (
-                context
-                if context is not None
-                else ConversationContext()
-            ),
-        }
+        initial_state = self._initial_state(query, context)
 
         result = await self.graph.ainvoke(
             initial_state
@@ -925,6 +928,79 @@ class TravelAgentWorkflow:
             AgentState,
             result,
         )
+
+    async def stream(
+        self,
+        query: str,
+        *,
+        context: ConversationContext | None = None,
+    ) -> AsyncIterator[tuple[str, dict[str, Any] | AgentState]]:
+        state = self._initial_state(query, context)
+
+        yield (
+            "progress",
+            _stage_event("planning"),
+        )
+
+        async for mode, chunk in self.graph.astream(
+            state,
+            stream_mode=["updates", "custom"],
+        ):
+            if mode == "custom":
+                if isinstance(chunk, dict) and chunk.get("type") == "tool":
+                    yield "progress", chunk
+                continue
+
+            if mode != "updates" or not isinstance(chunk, dict):
+                continue
+
+            for node_name, update in chunk.items():
+                if isinstance(update, dict):
+                    state.update(update)
+                stage = self._public_stage_after_node(node_name, state)
+                if stage is not None:
+                    yield "progress", _stage_event(stage)
+
+        yield "result", cast(AgentState, state)
+
+    @staticmethod
+    def _initial_state(
+        query: str,
+        context: ConversationContext | None,
+    ) -> AgentState:
+        return {
+            "query": query,
+            "retry_count": 0,
+            "conversation_context": (
+                context
+                if context is not None
+                else ConversationContext()
+            ),
+        }
+
+    def _public_stage_after_node(
+        self,
+        node_name: str,
+        state: AgentState,
+    ) -> str | None:
+        if node_name == "planner":
+            plan = state.get("plan")
+            if plan is not None and plan.clarification is not None:
+                return "generating"
+            return "retrieving"
+        if node_name == "research_aggregator":
+            return "validating"
+        if node_name == "validator":
+            return (
+                "retrieving"
+                if self.route_after_validation(state) == "retry"
+                else "reasoning"
+            )
+        if node_name == "retry":
+            return "retrieving"
+        if node_name == "reasoner":
+            return "generating"
+        return None
 
     # ========================================================
     # SYNC CONVENIENCE API
@@ -957,6 +1033,14 @@ class TravelAgentWorkflow:
 # ============================================================
 # MODULE-LEVEL FACTORY
 # ============================================================
+
+
+def _stage_event(stage: str) -> dict[str, str]:
+    return {
+        "type": "stage",
+        "stage": stage,
+        "message": PUBLIC_STAGE_MESSAGES[stage],
+    }
 
 
 def build_workflow() -> TravelAgentWorkflow:
