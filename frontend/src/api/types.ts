@@ -4,6 +4,59 @@ export type UserResponse = {
   display_name: string | null;
   avatar_url: string | null;
   is_verified: boolean;
+  is_admin: boolean;
+};
+
+export type AdminOverview = {
+  total_users: number;
+  active_users: number;
+  total_conversations: number;
+  total_runs: number;
+  successful_runs: number;
+  degraded_runs: number;
+  failed_runs: number;
+  requests_today: number;
+  average_latency_ms: number | null;
+  p50_latency_ms: number | null;
+  p95_latency_ms: number | null;
+  tool_usage: Record<string, number>;
+};
+
+export type AdminUser = UserResponse & {
+  is_active: boolean;
+  created_at: string;
+  conversation_count: number;
+  run_count: number;
+};
+
+export type AdminUserPage = {
+  items: AdminUser[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type AdminAgentRun = {
+  id: string;
+  conversation_id: string;
+  user_email: string;
+  user_display_name: string | null;
+  intent: string | null;
+  retrieval_mode: string | null;
+  status: "running" | "success" | "degraded" | "failed";
+  latency_ms: number | null;
+  retry_count: number;
+  tools_used: string[] | null;
+  error_code: string | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type AdminAgentRunPage = {
+  items: AdminAgentRun[];
+  total: number;
+  limit: number;
+  offset: number;
 };
 
 export type AuthResponse = {

@@ -42,3 +42,15 @@ export function ExternalIcon({ size = 14, ...props }: IconProps) {
 export function WarningIcon({ size = 18, ...props }: IconProps) {
   return <svg {...svgBase(size)} {...props}><path d="M12 4 21 20H3L12 4Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M12 9v5M12 17.2v.1" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>;
 }
+export function SettingsIcon({ size = 17, ...props }: IconProps) {
+  return <svg {...svgBase(size)} {...props}><circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M19 13.5v-3l-2-.7-.7-1.7.9-1.9-2.1-2.1-1.9.9-1.7-.7-.7-2h-3l-.7 2-1.7.7-1.9-.9-2.1 2.1.9 1.9-.7 1.7-2 .7v3l2 .7.7 1.7-.9 1.9 2.1 2.1 1.9-.9 1.7.7.7 2h3l.7-2 1.7-.7 1.9.9 2.1-2.1-.9-1.9.7-1.7 2-.7Z" stroke="currentColor" strokeWidth="1.35" strokeLinejoin="round"/></svg>;
+}
+export function UsersIcon({ size = 18, ...props }: IconProps) {
+  return <svg {...svgBase(size)} {...props}><circle cx="9" cy="8" r="3" stroke="currentColor" strokeWidth="1.5"/><path d="M3 19c.5-3.7 2.5-5.6 6-5.6s5.5 1.9 6 5.6M15 6.2c2.2.1 3.5 1.3 3.5 3.1 0 1.8-1.3 3-3.5 3.1M16 14c2.8.5 4.3 2.2 4.5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>;
+}
+export function BackIcon({ size = 18, ...props }: IconProps) {
+  return <svg {...svgBase(size)} {...props}><path d="m14.5 5-7 7 7 7M8 12h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+}
+export function CheckIcon({ size = 16, ...props }: IconProps) {
+  return <svg {...svgBase(size)} {...props}><path d="m5 12 4 4L19 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+}

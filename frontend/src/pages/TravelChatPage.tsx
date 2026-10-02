@@ -1,43 +1,45 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { FormEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { reconcileCompletedMessages } from "../api/chatState";
 import type { AgentProgressStage, CitationResponse, ConversationResponse, MessageResponse, UserResponse } from "../api/types";
 import { useAuth } from "../auth/AuthProvider";
+import { appearanceOptions, useAppearance } from "../appearance/AppearanceProvider";
 import { MarkdownLite } from "../components/MarkdownLite";
 import { Modal } from "../components/Modal";
 import {
-  ArchiveIcon, ChatIcon, CloseIcon, EditIcon, ExternalIcon, LogoutIcon, MenuIcon,
-  MoreIcon, PlusIcon, SendIcon, TrashIcon, UserIcon, WarningIcon,
+  ArchiveIcon, ChatIcon, CheckIcon, EditIcon, ExternalIcon, LogoutIcon, MenuIcon,
+  MoreIcon, PlusIcon, SendIcon, SettingsIcon, TrashIcon, UsersIcon, WarningIcon,
 } from "../components/Icons";
 
 const suggestions = [
-  "Plan a three-day nature-focused trip to Da Lat",
-  "Suggest destinations in Vietnam for a couple",
-  "Compare Hue and Hoi An",
-  "Will it rain in Da Nang tomorrow?",
+  "Lên lịch trình khám phá thiên nhiên Đà Lạt trong 3 ngày",
+  "Gợi ý điểm đến phù hợp cho chuyến đi hai người",
+  "So sánh Huế và Hội An cho kỳ nghỉ ngắn ngày",
+  "Ngày mai Đà Nẵng có mưa không?",
 ];
 
 const progressLabels: Record<AgentProgressStage, string> = {
-  planning: "Analyzing your request",
-  retrieving: "Searching travel information",
-  validating: "Checking evidence",
-  reasoning: "Organizing information",
-  generating: "Preparing response",
+  planning: "Đang phân tích yêu cầu",
+  retrieving: "Đang tìm thông tin du lịch",
+  validating: "Đang kiểm tra nguồn",
+  reasoning: "Đang tổng hợp thông tin",
+  generating: "Đang soạn câu trả lời",
 };
 
 const toolLabels: Record<string, string> = {
-  weather: "Checking weather",
-  search_travel_knowledge: "Searching travel information",
-  web_search: "Checking current information",
-  routing: "Calculating route",
-  map_location: "Locating place",
-  budget_calculator: "Calculating budget",
-  distance_matrix: "Comparing travel distances",
+  weather: "Đang kiểm tra thời tiết",
+  search_travel_knowledge: "Đang tra cứu thông tin du lịch",
+  web_search: "Đang tìm thông tin mới nhất",
+  routing: "Đang tính đường đi",
+  map_location: "Đang xác định địa điểm",
+  budget_calculator: "Đang ước tính chi phí",
+  distance_matrix: "Đang so sánh khoảng cách",
 };
 
 function titleOf(conversation: ConversationResponse) {
-  return conversation.title || "New conversation";
+  return conversation.title || "Cuộc trò chuyện mới";
 }
 
 function groupConversations(conversations: ConversationResponse[]) {
@@ -51,7 +53,7 @@ function sortMessages(messages: MessageResponse[]) {
 export function TravelChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [conversations, setConversations] = useState<ConversationResponse[]>([]);
@@ -67,7 +69,7 @@ export function TravelChatPage() {
   const [renameTarget, setRenameTarget] = useState<ConversationResponse | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ConversationResponse | null>(null);
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [accountOpen, setAccountOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [rateLimitSeconds, setRateLimitSeconds] = useState<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,14 +90,14 @@ export function TravelChatPage() {
   const handleApiError = useCallback((cause: unknown, fallback: string) => {
     if (cause instanceof ApiError) {
       if (cause.status === 429) setRateLimitSeconds(cause.retryAfter || 60);
-      else setPageError(cause.message || fallback);
+      else setPageError(cause.status === 422 ? fallback : cause.message || fallback);
     } else setPageError(fallback);
   }, []);
 
   useEffect(() => {
     let active = true;
     setListLoading(true);
-    loadConversations().catch((cause) => active && handleApiError(cause, "Could not load conversations."))
+    loadConversations().catch((cause) => active && handleApiError(cause, "Không thể tải danh sách cuộc trò chuyện."))
       .finally(() => active && setListLoading(false));
     return () => { active = false; };
   }, [handleApiError, loadConversations]);
@@ -111,7 +113,7 @@ export function TravelChatPage() {
         setConversations((current) => current.filter((item) => item.id !== id));
         setMessages([]);
         navigate("/", { replace: true });
-      } else handleApiError(cause, "Could not load conversation history.");
+      } else handleApiError(cause, "Không thể tải lịch sử trò chuyện.");
     } finally {
       setHistoryLoading(false);
     }
@@ -130,7 +132,7 @@ export function TravelChatPage() {
           setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]);
         } catch (cause) {
           if (cause instanceof ApiError && cause.status === 404) navigate("/", { replace: true });
-          else handleApiError(cause, "Could not open this conversation.");
+          else handleApiError(cause, "Không thể mở cuộc trò chuyện này.");
           return;
         }
       }
@@ -158,7 +160,7 @@ export function TravelChatPage() {
       navigate(`/c/${conversation.id}`);
       setMobileSidebarOpen(false);
     } catch (cause) {
-      handleApiError(cause, "Could not create a conversation.");
+      handleApiError(cause, "Không thể tạo cuộc trò chuyện mới.");
     }
   }
 
@@ -187,9 +189,9 @@ export function TravelChatPage() {
 
       await api.streamMessage(id, value, (event) => {
         if (event.event === "connected") return;
-        if (event.event === "stage") setProgress(event.data.message || progressLabels[event.data.stage]);
-        if (event.event === "tool" && event.data.status === "started") setProgress(toolLabels[event.data.tool] || "Gathering travel information");
-        if (event.event === "error") streamError = event.data.message || "The assistant could not complete this request.";
+        if (event.event === "stage") setProgress(progressLabels[event.data.stage]);
+        if (event.event === "tool" && event.data.status === "started") setProgress(toolLabels[event.data.tool] || "Đang thu thập thông tin du lịch");
+        if (event.event === "error") streamError = event.data.message || "Trợ lý chưa thể hoàn tất yêu cầu này.";
         if (event.event === "completed") {
           const result = event.data;
           setMessages((current) => reconcileCompletedMessages(current, optimisticId, result));
@@ -203,7 +205,7 @@ export function TravelChatPage() {
         await loadConversations();
       }
     } catch (cause) {
-      handleApiError(cause, "The connection was interrupted. History has been refreshed.");
+      handleApiError(cause, "Kết nối bị gián đoạn. Lịch sử trò chuyện đã được cập nhật lại.");
       if (id) await loadHistory(id);
     } finally {
       setProgress(null);
@@ -218,7 +220,7 @@ export function TravelChatPage() {
       const updated = await api.updateConversation(renameTarget.id, { title: title.trim() });
       setConversations((current) => current.map((item) => item.id === updated.id ? updated : item));
       setRenameTarget(null);
-    } catch (cause) { handleApiError(cause, "Could not rename the conversation."); }
+    } catch (cause) { handleApiError(cause, "Không thể đổi tên cuộc trò chuyện."); }
   }
 
   async function archiveConversation(id: string, isArchived = true) {
@@ -227,7 +229,7 @@ export function TravelChatPage() {
       setConversations((current) => current.map((item) => item.id === id ? updated : item));
       setActiveMenu(null);
       if (conversationId === id && isArchived) navigate("/");
-    } catch (cause) { handleApiError(cause, "Could not update the conversation."); }
+    } catch (cause) { handleApiError(cause, "Không thể cập nhật cuộc trò chuyện."); }
   }
 
   async function deleteConversation(id: string) {
@@ -236,108 +238,163 @@ export function TravelChatPage() {
       setConversations((current) => current.filter((item) => item.id !== id));
       setDeleteTarget(null);
       if (conversationId === id) { setMessages([]); navigate("/"); }
-    } catch (cause) { handleApiError(cause, "Could not delete the conversation."); }
+    } catch (cause) { handleApiError(cause, "Không thể xoá cuộc trò chuyện."); }
   }
 
   async function openArchived() {
     setUserMenuOpen(false);
     try { await loadConversations(true); setArchivedOpen(true); }
-    catch (cause) { handleApiError(cause, "Could not load archived conversations."); }
+    catch (cause) { handleApiError(cause, "Không thể tải các cuộc trò chuyện đã lưu trữ."); }
   }
 
-  const displayName = user?.display_name || user?.email || "Account";
+  const displayName = user?.display_name || user?.email || "Tài khoản";
   const initial = displayName.slice(0, 1).toUpperCase();
 
   return (
     <div className={`app-shell ${desktopCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className={`sidebar ${mobileSidebarOpen ? "is-open" : ""}`} aria-label="Conversation sidebar">
+      <aside className={`sidebar ${mobileSidebarOpen ? "is-open" : ""}`} aria-label="Lịch sử trò chuyện">
         <div className="sidebar-head">
           <div className="sidebar-title-row">
             <Link className="brand" to="/"><span className="brand-full">Vietnam Travel Advisor</span><span className="brand-short">VTA</span></Link>
-            <button className="collapse-button" onClick={() => setDesktopCollapsed((value) => !value)} aria-label={desktopCollapsed ? "Expand sidebar" : "Collapse sidebar"}><MenuIcon /></button>
-            <button className="mobile-sidebar-close" onClick={() => setMobileSidebarOpen(false)} aria-label="Close sidebar"><CloseIcon /></button>
+            <button className="sidebar-toggle-button" onClick={() => { if (window.matchMedia("(max-width: 760px)").matches) setMobileSidebarOpen(false); else setDesktopCollapsed((value) => !value); }} aria-label="Thu gọn hoặc mở rộng thanh bên"><MenuIcon /></button>
           </div>
-          <button className="new-chat-button" onClick={newChat} disabled={sending}><PlusIcon /><span>New chat</span></button>
+          <button className="new-chat-button" onClick={newChat} disabled={sending}><PlusIcon /><span>Cuộc trò chuyện mới</span></button>
         </div>
-        <nav className="conversation-nav" aria-label="Conversation history">
+        <nav className="conversation-nav" aria-label="Danh sách cuộc trò chuyện">
           {listLoading && <div className="history-skeleton"><span /><span /><span /></div>}
-          {!listLoading && !visible.length && <p className="empty-dialog-copy">No conversations yet.</p>}
-          <ConversationGroup title="Today" items={groups.today} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
-          <ConversationGroup title="Previous" items={groups.previous} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
+          {!listLoading && !visible.length && <p className="empty-dialog-copy">Chưa có cuộc trò chuyện nào.</p>}
+          <ConversationGroup title="Hôm nay" items={groups.today} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
+          <ConversationGroup title="Trước đó" items={groups.previous} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
         </nav>
         <div className="sidebar-user">
           <button className="user-row" onClick={() => setUserMenuOpen((value) => !value)} aria-expanded={userMenuOpen}><span className="avatar">{initial}</span><span>{displayName}</span><MoreIcon className="user-more" /></button>
           {userMenuOpen && <div className="user-menu">
-            <button onClick={() => { setAccountOpen(true); setUserMenuOpen(false); }}><UserIcon />Account</button>
-            <button onClick={openArchived}><ArchiveIcon />Archived chats</button>
-            <button onClick={async () => { try { await logout(); } finally { navigate("/login"); } }}><LogoutIcon />Log out</button>
+            <button onClick={() => { setSettingsOpen(true); setUserMenuOpen(false); }}><SettingsIcon />Cài đặt</button>
+            <button onClick={openArchived}><ArchiveIcon />Cuộc trò chuyện đã lưu trữ</button>
+            {user?.is_admin && <button onClick={() => navigate("/admin")}><UsersIcon />Trang quản trị</button>}
+            <button onClick={async () => { try { await logout(); } finally { navigate("/login"); } }}><LogoutIcon />Đăng xuất</button>
           </div>}
         </div>
       </aside>
-      {mobileSidebarOpen && <button className="mobile-backdrop" onClick={() => setMobileSidebarOpen(false)} aria-label="Close sidebar" />}
+      {mobileSidebarOpen && <button className="mobile-backdrop" onClick={() => setMobileSidebarOpen(false)} aria-label="Đóng thanh bên" />}
       <main className="chat-main">
-        <header className="mobile-header"><button className="icon-button" onClick={() => setMobileSidebarOpen(true)} aria-label="Open sidebar"><MenuIcon /></button><span>Vietnam Travel Advisor</span><span className="mobile-header-spacer" /></header>
+        <header className="mobile-header"><button className="icon-button" onClick={() => setMobileSidebarOpen(true)} aria-label="Mở thanh bên"><MenuIcon /></button><span>Vietnam Travel Advisor</span><span className="mobile-header-spacer" /></header>
         {!conversationId ? <EmptyState onSuggestion={send} /> : activeConversation || historyLoading ? (
-          <section className="conversation-view" ref={viewRef} aria-label={activeConversation ? titleOf(activeConversation) : "Conversation"} onScroll={(event) => { const element = event.currentTarget; stayAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120; }}>
+          <section className="conversation-view" ref={viewRef} aria-label={activeConversation ? titleOf(activeConversation) : "Cuộc trò chuyện"} onScroll={(event) => { const element = event.currentTarget; stayAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120; }}>
             <div className="message-list">
               {historyLoading && !messages.length && <div className="history-skeleton"><span /><span /><span /></div>}
               {messages.map((message) => <MessageView key={message.id} message={message} degraded={degradedIds.has(message.id)} />)}
               {progress && <AgentProgress label={progress} />}
               {pageError && <div className="inline-error" role="alert">{pageError}</div>}
-              {rateLimitSeconds !== null && <div className="inline-error" role="alert">Too many requests. Try again in {rateLimitSeconds} seconds.</div>}
+              {rateLimitSeconds !== null && <div className="inline-error" role="alert">Bạn thao tác quá nhanh. Vui lòng thử lại sau {rateLimitSeconds} giây.</div>}
             </div>
           </section>
-        ) : <section className="center-state"><h1>Conversation not found</h1><p>This conversation is no longer available.</p><button className="secondary-button" onClick={() => navigate("/")}>Return to New Chat</button></section>}
+        ) : <section className="center-state"><h1>Không tìm thấy cuộc trò chuyện</h1><p>Cuộc trò chuyện này không còn khả dụng.</p><button className="secondary-button" onClick={() => navigate("/")}>Bắt đầu cuộc trò chuyện mới</button></section>}
         <Composer draft={draft} setDraft={setDraft} onSubmit={(event) => { event.preventDefault(); void send(); }} loading={sending} blocked={rateLimitSeconds !== null} textareaRef={textareaRef} />
       </main>
       {renameTarget && <RenameDialog conversation={renameTarget} onClose={() => setRenameTarget(null)} onSave={renameConversation} />}
       {deleteTarget && <DeleteDialog conversation={deleteTarget} onClose={() => setDeleteTarget(null)} onDelete={() => deleteConversation(deleteTarget.id)} />}
       {archivedOpen && <ArchivedDialog conversations={archived} onClose={() => { setArchivedOpen(false); void loadConversations(); }} onUnarchive={(id) => archiveConversation(id, false)} onDelete={(item) => { setArchivedOpen(false); setDeleteTarget(item); }} />}
-      {accountOpen && user && <AccountDialog user={user} onClose={() => setAccountOpen(false)} />}
+      {settingsOpen && user && <SettingsDialog user={user} onClose={() => setSettingsOpen(false)} onUserUpdated={updateUser} onLogoutAll={async () => { try { await api.logoutAll(); } finally { navigate("/login"); } }} />}
     </div>
   );
 }
 
 function ConversationGroup(props: { title: string; items: ConversationResponse[]; activeId?: string; activeMenu: string | null; setActiveMenu: (id: string | null) => void; setRenameTarget: (item: ConversationResponse) => void; setDeleteTarget: (item: ConversationResponse) => void; archiveConversation: (id: string) => void }) {
   if (!props.items.length) return null;
-  return <section className="conversation-group"><div className="group-label">{props.title}</div>{props.items.map((item) => (
-    <div className={`conversation-row ${props.activeId === item.id ? "is-active" : ""}`} key={item.id}>
-      <Link to={`/c/${item.id}`}><ChatIcon /><span>{titleOf(item)}</span></Link>
-      <button className="row-menu-button" onClick={() => props.setActiveMenu(props.activeMenu === item.id ? null : item.id)} aria-label={`Menu ${titleOf(item)}`}><MoreIcon /></button>
-      {props.activeMenu === item.id && <div className="row-menu"><button onClick={() => { props.setRenameTarget(item); props.setActiveMenu(null); }}><EditIcon />Rename</button><button onClick={() => props.archiveConversation(item.id)}><ArchiveIcon />Archive</button><button className="danger-text" onClick={() => { props.setDeleteTarget(item); props.setActiveMenu(null); }}><TrashIcon />Delete</button></div>}
-    </div>
-  ))}</section>;
+  return <section className="conversation-group"><div className="group-label">{props.title}</div>{props.items.map((item) => <ConversationRow key={item.id} item={item} active={props.activeId === item.id} menuOpen={props.activeMenu === item.id} setActiveMenu={props.setActiveMenu} setRenameTarget={props.setRenameTarget} setDeleteTarget={props.setDeleteTarget} archiveConversation={props.archiveConversation} />)}</section>;
+}
+
+function ConversationRow({ item, active, menuOpen, setActiveMenu, setRenameTarget, setDeleteTarget, archiveConversation }: { item: ConversationResponse; active: boolean; menuOpen: boolean; setActiveMenu: (id: string | null) => void; setRenameTarget: (item: ConversationResponse) => void; setDeleteTarget: (item: ConversationResponse) => void; archiveConversation: (id: string) => void }) {
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  return <div className={`conversation-row ${active ? "is-active" : ""}`}>
+    <Link to={`/c/${item.id}`}><ChatIcon /><span>{titleOf(item)}</span></Link>
+    <button ref={buttonRef} className="row-menu-button" onClick={() => setActiveMenu(menuOpen ? null : item.id)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`Tuỳ chọn cho ${titleOf(item)}`}><MoreIcon /></button>
+    {menuOpen && <ConversationPopover anchorRef={buttonRef} onClose={() => setActiveMenu(null)}><button role="menuitem" onClick={() => { setRenameTarget(item); setActiveMenu(null); }}><EditIcon />Đổi tên</button><button role="menuitem" onClick={() => archiveConversation(item.id)}><ArchiveIcon />Lưu trữ</button><button role="menuitem" className="danger-text" onClick={() => { setDeleteTarget(item); setActiveMenu(null); }}><TrashIcon />Xoá</button></ConversationPopover>}
+  </div>;
+}
+
+function ConversationPopover({ anchorRef, onClose, children }: { anchorRef: RefObject<HTMLButtonElement | null>; onClose: () => void; children: ReactNode }) {
+  const [position, setPosition] = useState({ top: 0, left: 0 });
+  useLayoutEffect(() => {
+    const update = () => {
+      const rect = anchorRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const width = 156;
+      const height = 124;
+      const left = Math.max(8, Math.min(window.innerWidth - width - 8, rect.right - width));
+      const top = rect.bottom + 6 + height <= window.innerHeight ? rect.bottom + 6 : Math.max(8, rect.top - height - 6);
+      setPosition({ top, left });
+    };
+    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [anchorRef, onClose]);
+  return createPortal(<div className="row-menu row-menu-portal" role="menu" style={position}>{children}</div>, document.body);
 }
 
 function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) {
-  return <section className="empty-state"><div className="empty-copy"><div className="empty-kicker">Vietnam Travel Advisor</div><h1>Where would you like to explore in Vietnam?</h1><p>Ask about destinations, itineraries, weather, routes, budgets, or compare travel options.</p></div><div className="suggestions" aria-label="Prompt suggestions">{suggestions.map((item) => <button key={item} onClick={() => onSuggestion(item)}>{item}</button>)}</div></section>;
+  return <section className="empty-state"><div className="empty-copy"><div className="empty-kicker">Vietnam Travel Advisor</div><h1>Bạn muốn khám phá nơi nào ở Việt Nam?</h1><p>Hỏi về điểm đến, lịch trình, thời tiết, đường đi, chi phí hoặc so sánh các lựa chọn du lịch.</p></div><div className="suggestions" aria-label="Câu hỏi gợi ý">{suggestions.map((item) => <button key={item} onClick={() => onSuggestion(item)}>{item}</button>)}</div></section>;
 }
 
 export function MessageView({ message, degraded }: { message: MessageResponse; degraded: boolean }) {
-  if (message.role === "user") return <article className="user-message"><div className="message-meta">You</div><p>{message.content}</p></article>;
-  return <article className="assistant-message"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{message.warnings?.[0] || "Some information could not be fully verified."}</div></div> : null}</article>;
+  if (message.role === "user") return <article className="user-message"><div className="message-meta">Bạn</div><p>{message.content}</p></article>;
+  return <article className="assistant-message"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{message.warnings?.[0] || "Một số thông tin chưa thể được kiểm chứng đầy đủ."}</div></div> : null}</article>;
 }
 
 function CitationList({ citations }: { citations: CitationResponse[] }) {
-  return <section className="citations" aria-label="Sources"><h3>Sources</h3><div className="citation-list">{citations.map((citation) => citation.url ? <a key={citation.citation_id} href={citation.url} target="_blank" rel="noreferrer"><span>[{citation.citation_id}]</span>{citation.title}<ExternalIcon /></a> : <div className="citation-static" key={citation.citation_id}><span>[{citation.citation_id}]</span>{citation.title}</div>)}</div></section>;
+  return <section className="citations" aria-label="Nguồn"><h3>Nguồn</h3><div className="citation-list">{citations.map((citation) => citation.url ? <a key={citation.citation_id} href={citation.url} target="_blank" rel="noreferrer"><span>[{citation.citation_id}]</span>{citation.title}<ExternalIcon /></a> : <div className="citation-static" key={citation.citation_id}><span>[{citation.citation_id}]</span>{citation.title}</div>)}</div></section>;
 }
 
 function AgentProgress({ label }: { label: string }) { return <div className="agent-progress" role="status" aria-live="polite"><span className="progress-dot" /><span>{label}...</span></div>; }
 
 function Composer(props: { draft: string; setDraft: (value: string) => void; onSubmit: (event: FormEvent) => void; loading: boolean; blocked: boolean; textareaRef: RefObject<HTMLTextAreaElement | null> }) {
-  return <form className="composer-wrap" onSubmit={props.onSubmit}><div className="composer"><textarea ref={props.textareaRef} value={props.draft} onChange={(event) => props.setDraft(event.target.value.slice(0, 10000))} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Ask about your Vietnam trip..." rows={1} aria-label="Message" disabled={props.loading || props.blocked} /><button className="send-button" disabled={!props.draft.trim() || props.loading || props.blocked} aria-label="Send"><SendIcon /></button></div><div className="character-count">{props.draft.length.toLocaleString()}/10,000</div></form>;
+  useEffect(() => {
+    const textarea = props.textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
+  }, [props.draft, props.textareaRef]);
+  return <form className="composer-wrap" onSubmit={props.onSubmit}><div className="composer"><textarea ref={props.textareaRef} value={props.draft} onChange={(event) => props.setDraft(event.target.value.slice(0, 10000))} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Bạn muốn hỏi gì về chuyến đi?" rows={1} aria-label="Nội dung tin nhắn" disabled={props.loading || props.blocked} /><button className="send-button" disabled={!props.draft.trim() || props.loading || props.blocked} aria-label="Gửi"><SendIcon /></button></div><div className="character-count">{props.draft.length.toLocaleString("vi-VN")}/10.000</div></form>;
 }
 
 function RenameDialog({ conversation, onClose, onSave }: { conversation: ConversationResponse; onClose: () => void; onSave: (value: string) => void }) {
   const [value, setValue] = useState(titleOf(conversation));
-  return <Modal title="Rename conversation" onClose={onClose}><form className="dialog-form" onSubmit={(event) => { event.preventDefault(); onSave(value); }}><label><span>Conversation name</span><input value={value} maxLength={255} onChange={(event) => setValue(event.target.value)} autoFocus /></label><div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={!value.trim()}>Save</button></div></form></Modal>;
+  return <Modal title="Đổi tên cuộc trò chuyện" onClose={onClose}><form className="dialog-form" onSubmit={(event) => { event.preventDefault(); onSave(value); }}><label><span>Tên cuộc trò chuyện</span><input value={value} maxLength={255} onChange={(event) => setValue(event.target.value)} autoFocus /></label><div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Huỷ</button><button className="primary-button" disabled={!value.trim()}>Lưu</button></div></form></Modal>;
 }
 
-function DeleteDialog({ conversation, onClose, onDelete }: { conversation: ConversationResponse; onClose: () => void; onDelete: () => void }) { return <Modal title="Delete conversation?" onClose={onClose}><p className="dialog-copy">"{titleOf(conversation)}" will be deleted. This cannot be undone.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="danger-button" onClick={onDelete}>Delete</button></div></Modal>; }
+function DeleteDialog({ conversation, onClose, onDelete }: { conversation: ConversationResponse; onClose: () => void; onDelete: () => void }) { return <Modal title="Xoá cuộc trò chuyện?" onClose={onClose}><p className="dialog-copy">“{titleOf(conversation)}” sẽ bị xoá vĩnh viễn. Bạn không thể hoàn tác thao tác này.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Huỷ</button><button className="danger-button" onClick={onDelete}>Xoá</button></div></Modal>; }
 
-function ArchivedDialog({ conversations, onClose, onUnarchive, onDelete }: { conversations: ConversationResponse[]; onClose: () => void; onUnarchive: (id: string) => void; onDelete: (item: ConversationResponse) => void }) { return <Modal title="Archived chats" onClose={onClose}><div className="archived-list">{!conversations.length && <p className="empty-dialog-copy">No archived conversations.</p>}{conversations.map((item) => <div className="archived-row" key={item.id}><span>{titleOf(item)}</span><div><button onClick={() => onUnarchive(item.id)}>Unarchive</button><button className="danger-text" onClick={() => onDelete(item)}>Delete</button></div></div>)}</div></Modal>; }
+function ArchivedDialog({ conversations, onClose, onUnarchive, onDelete }: { conversations: ConversationResponse[]; onClose: () => void; onUnarchive: (id: string) => void; onDelete: (item: ConversationResponse) => void }) { return <Modal title="Cuộc trò chuyện đã lưu trữ" onClose={onClose}><div className="archived-list">{!conversations.length && <p className="empty-dialog-copy">Chưa có cuộc trò chuyện nào được lưu trữ.</p>}{conversations.map((item) => <div className="archived-row" key={item.id}><span>{titleOf(item)}</span><div><button onClick={() => onUnarchive(item.id)}>Bỏ lưu trữ</button><button className="danger-text" onClick={() => onDelete(item)}>Xoá</button></div></div>)}</div></Modal>; }
 
-function AccountDialog({ user, onClose }: { user: UserResponse; onClose: () => void }) {
-  const displayName = user.display_name || user.email;
-  return <Modal title="Account" onClose={onClose}><div className="account-view"><span className="avatar account-avatar">{displayName.slice(0, 1).toUpperCase()}</span><dl><div><dt>Display name</dt><dd>{user.display_name || "Not set"}</dd></div><div><dt>Email</dt><dd>{user.email}</dd></div><div><dt>Verified</dt><dd>{user.is_verified ? "Yes" : "No"}</dd></div></dl><p>Account information is read-only.</p></div></Modal>;
+function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: UserResponse; onClose: () => void; onUserUpdated: (user: UserResponse) => void; onLogoutAll: () => Promise<void> }) {
+  const [tab, setTab] = useState<"appearance" | "account">("appearance");
+  const [name, setName] = useState(user.display_name || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const { appearance, setAppearance } = useAppearance();
+
+  async function saveProfile(event: FormEvent) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const updated = await api.updateMe(name.trim() || null);
+      onUserUpdated(updated);
+      setName(updated.display_name || "");
+    } catch (cause) {
+      setError(cause instanceof ApiError && cause.status !== 422 ? cause.message : "Không thể cập nhật thông tin tài khoản.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Modal title="Cài đặt" onClose={onClose} className="settings-modal"><div className="settings-layout"><nav className="settings-tabs" aria-label="Các mục cài đặt"><button className={tab === "appearance" ? "is-active" : ""} onClick={() => setTab("appearance")}>Giao diện</button><button className={tab === "account" ? "is-active" : ""} onClick={() => setTab("account")}>Tài khoản</button></nav><div className="settings-content">{tab === "appearance" ? <section><h3>Giao diện</h3><p>Chọn màu nền bạn muốn sử dụng trong ứng dụng.</p><div className="appearance-options">{appearanceOptions.map((option) => <button key={option.value} className={appearance === option.value ? "is-selected" : ""} onClick={() => setAppearance(option.value)}><span className="appearance-swatch" style={{ background: option.swatch }} /><span>{option.label}</span>{appearance === option.value && <CheckIcon />}</button>)}</div></section> : <section><h3>Tài khoản</h3><div className="account-summary"><span className="avatar account-avatar">{(user.display_name || user.email).slice(0, 1).toUpperCase()}</span><div><strong>{user.display_name || "Chưa đặt tên"}</strong><span>{user.email}</span></div></div><form className="profile-form" onSubmit={saveProfile}><label><span>Tên hiển thị</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>{error && <div className="form-error" role="alert">{error}</div>}<button className="primary-button" disabled={saving}>{saving ? "Đang lưu..." : "Lưu thay đổi"}</button></form><div className="account-actions"><div><strong>Đăng xuất khỏi mọi thiết bị</strong><span>Thu hồi tất cả phiên đăng nhập đang hoạt động của tài khoản này.</span></div><button className="secondary-button" onClick={() => void onLogoutAll()}>Đăng xuất tất cả</button></div></section>}</div></div></Modal>;
 }

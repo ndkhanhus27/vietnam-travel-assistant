@@ -34,6 +34,24 @@ CORS default.
 - POST SSE chat with buffered incremental parsing
 - Progress, tool activity, persisted completion, citations, warnings, and 429
 - Route restoration at `/c/:conversationId`
+- Three persisted appearance palettes matching the supplied color variants
+- Profile display-name editing and logout-all-devices settings
+- Server-authorized internal administration at `/admin`
+
+## Development admin
+
+Admin access is enforced by the backend. For a local bootstrap account, add
+the following to `backend/.env`, run the Alembic migrations, and restart the
+API:
+
+```env
+ADMIN_BOOTSTRAP_ENABLED=true
+ADMIN_EMAIL=admin@example.com
+ADMIN_INITIAL_PASSWORD=replace-with-a-strong-local-password
+```
+
+Bootstrap is disabled by default, is idempotent, and never logs the password.
+Leave it disabled outside explicitly configured development environments.
 
 PostgreSQL remains authoritative for conversation history. The frontend never
 sends visible history, user IDs, tool choices, or internal context in a chat

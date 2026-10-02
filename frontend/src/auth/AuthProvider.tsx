@@ -6,6 +6,7 @@ type AuthContextValue = {
   user: UserResponse | null;
   bootstrapping: boolean;
   authenticate: (result: AuthResponse) => void;
+  updateUser: (user: UserResponse) => void;
   logout: () => Promise<void>;
 };
 
@@ -50,6 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     authenticate: (result) => {
       sessionStore.set(result);
       setUser(result.user);
+    },
+    updateUser: (nextUser) => {
+      sessionStore.updateUser(nextUser);
+      setUser(nextUser);
     },
     logout: async () => {
       await api.logout();

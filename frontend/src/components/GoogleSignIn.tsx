@@ -28,7 +28,8 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
       if (!window.google || !container.current) return;
       container.current.replaceChildren();
       window.google.accounts.id.initialize({ client_id: clientId, callback: ({ credential }) => onCredential(credential) });
-      window.google.accounts.id.renderButton(container.current, { type: "standard", theme: "outline", size: "large", width: "356" });
+      const width = Math.max(240, Math.min(400, container.current.clientWidth));
+      window.google.accounts.id.renderButton(container.current, { type: "standard", theme: "outline", size: "large", width: String(width), locale: "vi" });
       setReady(true);
     };
     const existing = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
@@ -42,10 +43,10 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
     script.async = true;
     script.defer = true;
     script.onload = render;
-    script.onerror = () => onUnavailable("Google sign-in could not be loaded.");
+    script.onerror = () => onUnavailable("Không thể tải tính năng đăng nhập bằng Google.");
     document.head.appendChild(script);
   }, [clientId, onCredential, onUnavailable]);
 
-  if (!clientId) return <button type="button" className="google-button" disabled title="Set VITE_GOOGLE_CLIENT_ID to enable Google sign-in">G&nbsp;&nbsp; Continue with Google</button>;
+  if (!clientId) return <button type="button" className="google-button" disabled title="Chưa cấu hình đăng nhập bằng Google">G&nbsp;&nbsp; Tiếp tục với Google</button>;
   return <div className={`google-login-slot ${disabled || !ready ? "is-loading" : ""}`} ref={container} aria-busy={!ready} />;
 }

@@ -1,5 +1,9 @@
 import { SseParser } from "./sse";
 import type {
+  AdminAgentRunPage,
+  AdminOverview,
+  AdminUser,
+  AdminUserPage,
   AuthResponse,
   ChatResponse,
   ConversationResponse,
@@ -39,6 +43,12 @@ export const sessionStore = {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     window.dispatchEvent(new Event(SESSION_EVENT));
   },
+  updateUser(user: UserResponse) {
+    const session = this.get();
+    if (!session) return;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...session, user }));
+    window.dispatchEvent(new Event(SESSION_EVENT));
+  },
   clear() {
     localStorage.removeItem(SESSION_KEY);
     window.dispatchEvent(new Event(SESSION_EVENT));
@@ -54,7 +64,7 @@ function retryAfter(response: Response) {
 }
 
 async function errorFromResponse(response: Response): Promise<ApiError> {
-  let detail = "Request failed. Please try again.";
+  let detail = "Yêu cầu không thành công. Vui lòng thử lại.";
   try {
     const payload = await response.json() as { detail?: string | Array<{ msg?: string }> };
     if (typeof payload.detail === "string") detail = payload.detail;
@@ -62,8 +72,8 @@ async function errorFromResponse(response: Response): Promise<ApiError> {
   } catch {
     // Keep the safe public fallback.
   }
-  if (response.status >= 500) detail = response.status === 502 ? "Unable to complete the assistant response." : "The service is temporarily unavailable.";
-  if (response.status === 429) detail = "Too many requests. Please try again later.";
+  if (response.status >= 500) detail = response.status === 502 ? "Trợ lý chưa thể hoàn tất câu trả lời." : "Dịch vụ đang tạm thời gián đoạn.";
+  if (response.status === 429) detail = "Bạn thao tác quá nhanh. Vui lòng thử lại sau.";
   return new ApiError(response.status, detail, retryAfter(response));
 }
 
@@ -74,14 +84,14 @@ async function fetchRequest(path: string, init: RequestInit, token?: string): Pr
   try {
     return await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
-    throw new ApiError(0, "Cannot connect to the server. Please check your connection.");
+    throw new ApiError(0, "Không thể kết nối đến máy chủ. Vui lòng kiểm tra kết nối mạng.");
   }
 }
 
 async function refreshSession(): Promise<AuthResponse> {
   if (refreshPromise) return refreshPromise;
   const session = sessionStore.get();
-  if (!session?.refresh_token) throw new ApiError(401, "Session expired.");
+  if (!session?.refresh_token) throw new ApiError(401, "Phiên đăng nhập đã hết hạn.");
   refreshPromise = (async () => {
     const response = await fetchRequest("/auth/refresh", {
       method: "POST",
@@ -137,7 +147,7 @@ export async function streamConversation(
     body: JSON.stringify({ content }),
   });
   if (!response.ok) throw await errorFromResponse(response);
-  if (!response.body) throw new ApiError(0, "The streaming response was empty.");
+  if (!response.body) throw new ApiError(0, "Máy chủ không trả về nội dung phản hồi.");
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -157,6 +167,10 @@ export const api = {
   googleLogin: (credential: string) => authenticate("/auth/google", { credential }),
   refresh: refreshSession,
   me: () => request<UserResponse>("/users/me"),
+  updateMe: (displayName: string | null) => request<UserResponse>("/users/me", {
+    method: "PATCH",
+    body: JSON.stringify({ display_name: displayName }),
+  }),
   listConversations: (includeArchived = false) => request<ConversationResponse[]>(`/conversations?limit=100&offset=0&include_archived=${includeArchived}`),
   getConversation: (id: string) => request<ConversationResponse>(`/conversations/${id}`),
   createConversation: () => request<ConversationResponse>("/conversations", { method: "POST", body: "{}" }),
@@ -180,4 +194,11 @@ export const api = {
       sessionStore.clear();
     }
   },
+  adminOverview: () => request<AdminOverview>("/admin/overview"),
+  adminUsers: (limit = 25, offset = 0) => request<AdminUserPage>(`/admin/users?limit=${limit}&offset=${offset}`),
+  updateAdminUser: (id: string, isActive: boolean) => request<AdminUser>(`/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_active: isActive }),
+  }),
+  adminAgentRuns: (limit = 25, offset = 0) => request<AdminAgentRunPage>(`/admin/agent-runs?limit=${limit}&offset=${offset}`),
 };
