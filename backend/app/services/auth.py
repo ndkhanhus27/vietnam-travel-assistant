@@ -306,6 +306,22 @@ class AuthService:
             raise InactiveUserError("User account is inactive")
         return user
 
+    async def update_display_name(
+        self,
+        user: User,
+        display_name: str | None,
+    ) -> User:
+        try:
+            updated = await self.repository.set_user_display_name(
+                user,
+                display_name,
+            )
+            await self.session.commit()
+            return updated
+        except Exception:
+            await self.session.rollback()
+            raise
+
     async def _create_session(
         self,
         user: User,

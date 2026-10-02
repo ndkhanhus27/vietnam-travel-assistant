@@ -60,7 +60,7 @@ async def _email_already_registered(
     request: Request,
     exc: Exception,
 ) -> JSONResponse:
-    return _response(status.HTTP_409_CONFLICT, "Email is already registered")
+    return _response(status.HTTP_409_CONFLICT, "Email này đã được đăng ký")
 
 
 async def _invalid_credentials(
@@ -69,33 +69,33 @@ async def _invalid_credentials(
 ) -> JSONResponse:
     return _response(
         status.HTTP_401_UNAUTHORIZED,
-        "Invalid email or password",
+        "Email hoặc mật khẩu không đúng",
         authenticate=True,
     )
 
 
 async def _inactive_user(request: Request, exc: Exception) -> JSONResponse:
-    return _response(status.HTTP_403_FORBIDDEN, "User account is inactive")
+    return _response(status.HTTP_403_FORBIDDEN, "Tài khoản đã bị vô hiệu hoá")
 
 
 async def _invalid_email(request: Request, exc: Exception) -> JSONResponse:
     return _response(
         422,
-        "Invalid email address",
+        "Địa chỉ email không hợp lệ",
     )
 
 
 async def _invalid_password(request: Request, exc: Exception) -> JSONResponse:
     return _response(
         422,
-        "Password must be between 8 and 128 characters",
+        "Mật khẩu phải có từ 8 đến 128 ký tự",
     )
 
 
 async def _invalid_refresh(request: Request, exc: Exception) -> JSONResponse:
     return _response(
         status.HTTP_401_UNAUTHORIZED,
-        "Invalid refresh token",
+        "Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
         authenticate=True,
     )
 
@@ -106,7 +106,7 @@ async def _invalid_google_credential(
 ) -> JSONResponse:
     return _response(
         status.HTTP_401_UNAUTHORIZED,
-        "Invalid Google credential",
+        "Thông tin đăng nhập Google không hợp lệ",
         authenticate=True,
     )
 
@@ -115,7 +115,7 @@ async def _conversation_not_found(
     request: Request,
     exc: Exception,
 ) -> JSONResponse:
-    return _response(status.HTTP_404_NOT_FOUND, "Conversation not found")
+    return _response(status.HTTP_404_NOT_FOUND, "Không tìm thấy cuộc trò chuyện")
 
 
 async def _invalid_chat_message(
@@ -124,7 +124,7 @@ async def _invalid_chat_message(
 ) -> JSONResponse:
     return _response(
         status.HTTP_422_UNPROCESSABLE_ENTITY,
-        "Invalid message content",
+        "Nội dung tin nhắn không hợp lệ",
     )
 
 
@@ -134,7 +134,7 @@ async def _chat_workflow_failed(
 ) -> JSONResponse:
     return _response(
         status.HTTP_502_BAD_GATEWAY,
-        "Unable to complete the assistant response.",
+        "Trợ lý chưa thể hoàn tất câu trả lời.",
     )
 
 

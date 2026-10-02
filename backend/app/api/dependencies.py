@@ -109,10 +109,21 @@ async def get_current_user(
     except InactiveUserError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="User account is inactive",
+            detail="Tài khoản đã bị vô hiệu hoá",
         ) from exc
     except (TokenError, UserNotFoundError) as exc:
         raise _unauthorized() from exc
+
+
+async def require_admin_user(
+    current_user: Annotated[User, Depends(get_current_user)],
+) -> User:
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn cần quyền quản trị viên để truy cập",
+        )
+    return current_user
 
 
 async def enforce_chat_rate_limit(
@@ -134,7 +145,7 @@ async def enforce_chat_rate_limit(
 def _unauthorized() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid or missing access token",
+        detail="Thiếu hoặc sai thông tin xác thực",
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -170,6 +181,6 @@ async def _enforce_rate_limit(
     logger.warning("Rate limit exceeded for scope=%s", scope)
     raise HTTPException(
         status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        detail="Too many requests. Please try again later.",
+        detail="Bạn thao tác quá nhanh. Vui lòng thử lại sau.",
         headers={"Retry-After": str(result.retry_after)},
     )

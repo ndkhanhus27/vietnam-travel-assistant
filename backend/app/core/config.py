@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = Field(default=30, gt=0)
     google_client_id: str = ""
     cors_origins: str = "http://localhost:5173"
+    admin_bootstrap_enabled: bool = False
+    admin_email: str = ""
+    admin_initial_password: SecretStr = SecretStr("")
 
     redis_enabled: bool = False
     redis_url: str = "redis://localhost:6379/0"

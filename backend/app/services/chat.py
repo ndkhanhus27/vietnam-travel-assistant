@@ -270,7 +270,7 @@ class ChatService:
                         "error",
                         {
                             "code": "CHAT_WORKFLOW_ERROR",
-                            "message": "Unable to complete the assistant response.",
+                            "message": "Trợ lý chưa thể hoàn tất câu trả lời.",
                         },
                     )
                 )

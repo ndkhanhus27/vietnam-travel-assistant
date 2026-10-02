@@ -41,6 +41,25 @@ class UserResponse(BaseModel):
     display_name: str | None
     avatar_url: str | None
     is_verified: bool
+    is_admin: bool
+
+
+class UpdateUserRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if len(normalized) > 120:
+            raise ValueError("Tên hiển thị không được vượt quá 120 ký tự")
+        return normalized
 
 
 class AuthResponse(BaseModel):
@@ -70,10 +89,10 @@ class SendMessageRequest(BaseModel):
     def validate_content(cls, value: str) -> str:
         normalized = value.strip()
         if not normalized:
-            raise ValueError("Message must not be empty")
+            raise ValueError("Tin nhắn không được để trống")
         if len(normalized) > MAX_CHAT_MESSAGE_LENGTH:
             raise ValueError(
-                f"Message must not exceed {MAX_CHAT_MESSAGE_LENGTH} characters"
+                f"Tin nhắn không được vượt quá {MAX_CHAT_MESSAGE_LENGTH} ký tự"
             )
         return normalized
 
@@ -176,5 +195,5 @@ def _normalize_conversation_title(value: str | None) -> str | None:
     if not normalized:
         return None
     if len(normalized) > 255:
-        raise ValueError("Conversation title must not exceed 255 characters")
+        raise ValueError("Tên cuộc trò chuyện không được vượt quá 255 ký tự")
     return normalized

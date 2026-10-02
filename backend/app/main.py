@@ -11,6 +11,7 @@ from app.api.errors import (
     register_chat_exception_handlers,
 )
 from app.api.routes import (
+    admin_router,
     auth_router,
     chat_router,
     conversations_router,
@@ -18,7 +19,9 @@ from app.api.routes import (
 )
 from app.core.config import settings
 from app.db.session import close_db
+from app.db.session import AsyncSessionFactory
 from app.infra.redis import create_redis_client
+from app.services.admin import bootstrap_admin
 
 
 logger = logging.getLogger(__name__)
@@ -43,6 +46,9 @@ async def lifespan(app: FastAPI):
                 "Redis unavailable; optional features will fail open: %s",
                 type(exc).__name__,
             )
+
+    async with AsyncSessionFactory() as session:
+        await bootstrap_admin(session)
 
     app.state.travel_workflow = build_workflow()
     try:
@@ -73,3 +79,4 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")
+app.include_router(admin_router, prefix="/api/v1")

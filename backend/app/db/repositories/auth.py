@@ -56,6 +56,15 @@ class AuthRepository:
         await self.session.flush()
         return user
 
+    async def set_user_display_name(
+        self,
+        user: User,
+        display_name: str | None,
+    ) -> User:
+        user.display_name = display_name
+        await self.session.flush()
+        return user
+
     async def set_user_verified(
         self,
         user: User,
