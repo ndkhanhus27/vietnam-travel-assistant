@@ -1,0 +1,33 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import type { MessageResponse } from "../api/types";
+import { MessageView } from "./TravelChatPage";
+
+const message: MessageResponse = {
+  id: "assistant-1",
+  role: "assistant",
+  content: "## Travel answer",
+  sequence_no: 2,
+  intent: null,
+  citations: [
+    { citation_id: "1", evidence_id: "e1", task_id: null, title: "Official source", url: "https://example.com", source_type: "web", tool: null, provider: null, metadata: {} },
+    { citation_id: "2", evidence_id: null, task_id: "weather-1", title: "Weather result", url: null, source_type: "tool", tool: "weather", provider: null, metadata: {} },
+  ],
+  warnings: null,
+  created_at: "2026-09-30T00:00:00Z",
+};
+
+describe("MessageView", () => {
+  it("renders linked and non-linked citations without fabricating URLs", () => {
+    const html = renderToStaticMarkup(<MessageView message={message} degraded={false} />);
+    expect(html).toContain('href="https://example.com"');
+    expect(html).toContain("Weather result");
+    expect((html.match(/href=/g) || [])).toHaveLength(1);
+  });
+
+  it("keeps degraded answers usable and adds a warning", () => {
+    const html = renderToStaticMarkup(<MessageView message={message} degraded />);
+    expect(html).toContain("Travel answer");
+    expect(html).toContain("Some information could not be fully verified.");
+  });
+});
