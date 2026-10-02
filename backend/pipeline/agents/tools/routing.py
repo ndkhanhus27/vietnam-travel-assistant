@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import math
 from typing import Any
 
 from pydantic import ValidationError
@@ -25,6 +27,10 @@ from pipeline.agents.tools.providers import (
 from pipeline.agents.tools.providers.goong_capabilities import (
     resolve_goong_directions_vehicle,
 )
+from pipeline.agents.tools.utils import normalize_text
+
+
+logger = logging.getLogger(__name__)
 
 
 class _RoutingLocationNotFound(RuntimeError):
@@ -161,16 +167,14 @@ class RoutingTool:
     # LOCATION RESOLUTION
     # ========================================================
 
-    def _resolve_location(
+    def _resolve_location_candidates(
         self,
         *,
         side: str,
         location: RoutingLocation,
-    ) -> ResolvedRouteLocation:
+    ) -> list[ResolvedRouteLocation]:
         if location.point is not None:
-            return ResolvedRouteLocation(
-                point=location.point,
-            )
+            return [ResolvedRouteLocation(point=location.point)]
 
         query = location.query or ""
         payload = self.client.geocode(query)
@@ -182,6 +186,7 @@ class RoutingTool:
                 error_code="GOONG_INVALID_PAYLOAD",
             )
 
+        candidates: list[ResolvedRouteLocation] = []
         for raw_result in raw_results:
             if not isinstance(raw_result, dict):
                 continue
@@ -199,24 +204,112 @@ class RoutingTool:
             if point is None:
                 continue
 
-            return ResolvedRouteLocation(
-                query=query,
-                name=self._optional_text(
-                    raw_result.get("name")
-                ),
-                formatted_address=self._optional_text(
-                    raw_result.get("formatted_address")
-                ),
-                place_id=self._optional_text(
-                    raw_result.get("place_id")
-                ),
-                point=point,
+            candidates.append(
+                ResolvedRouteLocation(
+                    query=query,
+                    name=self._optional_text(raw_result.get("name")),
+                    formatted_address=self._optional_text(
+                        raw_result.get("formatted_address")
+                    ),
+                    place_id=self._optional_text(raw_result.get("place_id")),
+                    point=point,
+                )
             )
+
+        if candidates:
+            return candidates
 
         raise _RoutingLocationNotFound(
             side=side,
             query=query,
         )
+
+    @staticmethod
+    def _geodesic_distance_meters(first: GeoPoint, second: GeoPoint) -> float:
+        earth_radius_meters = 6_371_000.0
+        lat1 = math.radians(first.lat)
+        lat2 = math.radians(second.lat)
+        delta_lat = lat2 - lat1
+        delta_lon = math.radians(second.lon - first.lon)
+        value = (
+            math.sin(delta_lat / 2) ** 2
+            + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lon / 2) ** 2
+        )
+        return 2 * earth_radius_meters * math.asin(min(1.0, math.sqrt(value)))
+
+    @classmethod
+    def _select_compatible_locations(
+        cls,
+        origins: list[ResolvedRouteLocation],
+        destinations: list[ResolvedRouteLocation],
+    ) -> tuple[ResolvedRouteLocation, ResolvedRouteLocation]:
+        pairs = [
+            (cls._geodesic_distance_meters(origin.point, destination.point), origin, destination)
+            for origin in origins
+            for destination in destinations
+        ]
+        non_identical = [item for item in pairs if item[0] >= 50.0]
+        distance, origin, destination = min(
+            non_identical or pairs,
+            key=lambda item: item[0],
+        )
+        return origin, destination
+
+    @classmethod
+    def _plausible_routes(
+        cls,
+        *,
+        origin: ResolvedRouteLocation,
+        destination: ResolvedRouteLocation,
+        routes: list[RouteAlternative],
+    ) -> tuple[list[RouteAlternative], float]:
+        straight_distance = cls._geodesic_distance_meters(
+            origin.point,
+            destination.point,
+        )
+        maximum_route_distance = max(
+            50_000.0,
+            straight_distance * 8.0 + 10_000.0,
+        )
+        plausible = [
+            route
+            for route in routes
+            if route.distance_meters > 0
+            and route.duration_seconds > 0
+            and route.distance_meters >= straight_distance * 0.75
+            and route.distance_meters <= maximum_route_distance
+        ]
+        return plausible, straight_distance
+
+    @staticmethod
+    def _ambiguous_long_distance(
+        origin: ResolvedRouteLocation,
+        destination: ResolvedRouteLocation,
+        straight_distance: float,
+    ) -> bool:
+        if straight_distance < 300_000:
+            return False
+        if not origin.query or not destination.query:
+            return False
+        if not origin.formatted_address or not destination.formatted_address:
+            return False
+
+        origin_region = normalize_text(origin.formatted_address.split(",")[-1])
+        destination_region = normalize_text(
+            destination.formatted_address.split(",")[-1]
+        )
+        if (
+            not origin_region
+            or not destination_region
+            or origin_region == destination_region
+        ):
+            return False
+
+        origin_explicit = origin_region in normalize_text(origin.query)
+        destination_explicit = destination_region in normalize_text(
+            destination.query
+        )
+        return not origin_explicit and not destination_explicit
 
     # ========================================================
     # DIRECTIONS NORMALIZATION
@@ -425,13 +518,17 @@ class RoutingTool:
             )
 
         try:
-            origin = self._resolve_location(
+            origin_candidates = self._resolve_location_candidates(
                 side="origin",
                 location=request.origin,
             )
-            destination = self._resolve_location(
+            destination_candidates = self._resolve_location_candidates(
                 side="destination",
                 location=request.destination,
+            )
+            origin, destination = self._select_compatible_locations(
+                origin_candidates,
+                destination_candidates,
             )
 
             payload = self.client.directions(
@@ -501,6 +598,46 @@ class RoutingTool:
                     "destination": destination.model_dump(
                         mode="json"
                     ),
+                },
+            )
+
+        routes, straight_distance = self._plausible_routes(
+            origin=origin,
+            destination=destination,
+            routes=routes,
+        )
+        ambiguous_geocoding = self._ambiguous_long_distance(
+            origin,
+            destination,
+            straight_distance,
+        )
+        if not routes or ambiguous_geocoding:
+            logger.warning(
+                "Routing sanity validation failed",
+                extra={
+                    "origin_query": request.origin.query,
+                    "destination_query": request.destination.query,
+                    "straight_distance_meters": round(straight_distance, 2),
+                },
+            )
+            return self._failed(
+                task_id=task.task_id,
+                code=(
+                    "ROUTING_AMBIGUOUS_GEOCODING"
+                    if ambiguous_geocoding
+                    else "ROUTING_IMPLAUSIBLE"
+                ),
+                message=(
+                    "Routing locations resolved to incompatible regions."
+                    if ambiguous_geocoding
+                    else "Routing provider returned a geographically implausible route."
+                ),
+                data={
+                    "requested_mode": request.mode.value,
+                    "provider_vehicle": provider_vehicle.value,
+                    "origin": origin.model_dump(mode="json"),
+                    "destination": destination.model_dump(mode="json"),
+                    "straight_distance_meters": round(straight_distance, 2),
                 },
             )
 

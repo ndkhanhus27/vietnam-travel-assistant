@@ -335,7 +335,7 @@ class ChatService:
                     citation.model_dump(mode="json")
                     for citation in response.citations
                 ],
-                warnings=_response_warnings(reasoner_output),
+                warnings=_response_warnings(reasoner_output, response),
             )
             await self.repository.update_conversation_context(
                 conversation,
@@ -452,12 +452,29 @@ def _response_content(
     return ""
 
 
-def _response_warnings(reasoner_output: object | None) -> list[str]:
-    if reasoner_output is None:
-        return []
+def _response_warnings(
+    reasoner_output: object | None,
+    response: AgentResponse | None = None,
+) -> list[str]:
+    reasoner_warnings = (
+        getattr(reasoner_output, "warnings", [])
+        if reasoner_output is not None
+        else []
+    )
+    limitations = (
+        getattr(reasoner_output, "limitations", [])
+        if reasoner_output is not None
+        else []
+    )
+    response_warnings = (
+        getattr(response, "warnings", [])
+        if response is not None
+        else []
+    )
     values = [
-        *getattr(reasoner_output, "warnings", []),
-        *getattr(reasoner_output, "limitations", []),
+        *reasoner_warnings,
+        *limitations,
+        *response_warnings,
     ]
     return list(dict.fromkeys(value for value in values if value))
 

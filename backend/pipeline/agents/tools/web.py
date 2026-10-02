@@ -10,7 +10,7 @@ from pipeline.agents.schemas import (
     EvidenceSource,
 )
 
-from .utils import normalize_text
+from .utils import normalize_text, sanitize_source_title
 
 
 # ============================================================
@@ -240,8 +240,10 @@ class WebSearchTool:
                     ),
 
                     title=(
-                        title
-                        or url
+                        sanitize_source_title(
+                            title,
+                            fallback=url,
+                        )
                     ),
 
                     content=content,
@@ -257,6 +259,7 @@ class WebSearchTool:
                         "search_query": query,
                         "entity": entity,
                         "purpose": purpose,
+                        "published_date": item.get("published_date"),
                     },
                 )
             )

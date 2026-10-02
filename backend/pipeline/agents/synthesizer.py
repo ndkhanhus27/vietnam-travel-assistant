@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
@@ -11,6 +12,9 @@ from app.core.config import settings
 from pipeline.agents.llm_runtime import (
     GeminiRuntime,
 )
+
+
+logger = logging.getLogger(__name__)
 
 from pipeline.agents.schemas import (
     AgentResponse,
@@ -80,6 +84,10 @@ class TravelSynthesizer:
 
     _MARKER_PATTERN = re.compile(
         r"\[\[(evidence|tool):([^\[\]\s]+)\]\]"
+    )
+
+    _MARKER_COMPONENT_PATTERN = re.compile(
+        r"^(evidence|tool)\s*:\s*([^\[\],\s]+)$"
     )
 
     _ANY_DOUBLE_BRACKET_PATTERN = re.compile(
@@ -481,6 +489,10 @@ Citation rules:
 9. Keep suggested follow-ups short and do not place citations or URLs
    inside them.
 
+For ITINERARY, preserve every Ngày 1 / Ngày 2 / ... section from
+ReasonerOutput. Do not replace the itinerary with a generic introduction or
+an unstructured destination list.
+
 INPUT CONTEXT:
 
 {json.dumps(
@@ -619,6 +631,176 @@ INPUT CONTEXT:
     # ========================================================
 
     @classmethod
+    def _normalize_citation_markers(
+        cls,
+        *,
+        answer_markdown: str,
+        allowed_evidence_ids: set[str],
+        allowed_task_ids: set[str],
+        evidence_by_id: dict[str, EvidenceItem],
+        observations_by_id: dict[str, ToolObservation],
+    ) -> tuple[str, list[str], bool]:
+        warnings: list[str] = []
+        unsafe = False
+
+        def normalize_group(match: re.Match[str]) -> str:
+            nonlocal unsafe
+            token = match.group(0)
+            inner = token[2:-2].strip()
+            parts = [part.strip() for part in inner.split(",")]
+            normalized: list[str] = []
+
+            for part in parts:
+                component = cls._MARKER_COMPONENT_PATTERN.fullmatch(part)
+                if component is None:
+                    warnings.append("Malformed citation marker was rejected.")
+                    unsafe = True
+                    continue
+
+                marker_type, source_id = component.groups()
+                if marker_type == "evidence":
+                    allowed = (
+                        source_id in allowed_evidence_ids
+                        and source_id in evidence_by_id
+                    )
+                else:
+                    allowed = (
+                        source_id in allowed_task_ids
+                        and source_id in observations_by_id
+                    )
+
+                if not allowed:
+                    warnings.append(
+                        f"Unselected citation ID was rejected: {source_id}."
+                    )
+                    logger.warning(
+                        "Invalid citation ID rejected",
+                        extra={"marker_type": marker_type, "source_id": source_id},
+                    )
+                    unsafe = True
+                    continue
+
+                normalized.append(f"[[{marker_type}:{source_id}]]")
+
+            if len(parts) > 1 and normalized:
+                logger.info(
+                    "Citation syntax repaired",
+                    extra={"marker_count": len(normalized)},
+                )
+
+            return "".join(normalized)
+
+        repaired = cls._ANY_DOUBLE_BRACKET_PATTERN.sub(
+            normalize_group,
+            answer_markdown,
+        )
+
+        unresolved_probe = cls._MARKER_PATTERN.sub("", repaired)
+        if "[[" in unresolved_probe or "]]" in unresolved_probe:
+            warnings.append("Unresolved citation syntax was rejected.")
+            unsafe = True
+            repaired = re.sub(
+                r"\[\[(?:evidence|tool):[^\n.!?]*",
+                "",
+                repaired,
+            ).replace("]]", "")
+
+        return repaired, list(dict.fromkeys(warnings)), unsafe
+
+    @staticmethod
+    def _grounded_fallback_answer(reasoner_output: ReasonerOutput) -> str:
+        lines: list[str] = []
+        for section in reasoner_output.sections:
+            if section.heading.strip():
+                lines.append(f"## {section.heading.strip()}")
+            for point in section.points:
+                markers = [
+                    *(
+                        f"[[evidence:{item_id}]]"
+                        for item_id in point.evidence_ids
+                    ),
+                    *(
+                        f"[[tool:{task_id}]]"
+                        for task_id in point.observation_task_ids
+                    ),
+                ]
+                lines.append(f"- {point.text.strip()}{''.join(markers)}")
+
+        if not lines:
+            limitations = [
+                value.strip()
+                for value in reasoner_output.limitations
+                if value.strip()
+            ]
+            return "\n".join(limitations) or (
+                "Chưa có đủ thông tin đã kiểm chứng để trả lời an toàn."
+            )
+        return "\n".join(lines)
+
+    @classmethod
+    def _resolve_citations_with_warnings(
+        cls,
+        *,
+        answer_markdown: str,
+        reasoner_output: ReasonerOutput,
+        research_evidence: list[EvidenceItem],
+        observations: list[ToolObservation],
+    ) -> tuple[str, list[Citation], list[str]]:
+        evidence_ids, task_ids = cls._reasoner_reference_ids(reasoner_output)
+        allowed_evidence_ids = set(evidence_ids)
+        allowed_task_ids = set(task_ids)
+        evidence_by_id = cls._index_evidence(research_evidence)
+        observations_by_id = cls._index_observations(observations)
+
+        answer_markdown, warnings, unsafe = cls._normalize_citation_markers(
+            answer_markdown=answer_markdown,
+            allowed_evidence_ids=allowed_evidence_ids,
+            allowed_task_ids=allowed_task_ids,
+            evidence_by_id=evidence_by_id,
+            observations_by_id=observations_by_id,
+        )
+        if unsafe:
+            answer_markdown = cls._grounded_fallback_answer(reasoner_output)
+            warnings.append(
+                "The generated answer used invalid citation syntax; a grounded fallback was used."
+            )
+
+        marker_numbers: dict[tuple[str, str], int] = {}
+        citations: list[Citation] = []
+
+        def replace_marker(match: re.Match[str]) -> str:
+            marker_type, source_id = match.groups()
+            marker_key = (marker_type, source_id)
+            citation_number = marker_numbers.get(marker_key)
+            if citation_number is None:
+                citation_number = len(citations) + 1
+                marker_numbers[marker_key] = citation_number
+                if marker_type == "evidence":
+                    citation = cls._evidence_citation(
+                        citation_id=str(citation_number),
+                        evidence=evidence_by_id[source_id],
+                    )
+                else:
+                    citation = cls._tool_citation(
+                        citation_id=str(citation_number),
+                        observation=observations_by_id[source_id],
+                    )
+                citations.append(citation)
+            return f"[{citation_number}]"
+
+        answer = cls._MARKER_PATTERN.sub(replace_marker, answer_markdown)
+        answer = cls._CITATION_SPACING_PATTERN.sub("]", answer)
+
+        if (allowed_evidence_ids or allowed_task_ids) and not citations:
+            fallback = cls._grounded_fallback_answer(reasoner_output)
+            answer = cls._MARKER_PATTERN.sub(replace_marker, fallback)
+            warnings.append(
+                "Citation coverage was restored from the grounded answer plan."
+            )
+
+        return answer.strip(), citations, list(dict.fromkeys(warnings))
+
+    @classmethod
     def _resolve_citations(
         cls,
         *,
@@ -627,130 +809,13 @@ INPUT CONTEXT:
         research_evidence: list[EvidenceItem],
         observations: list[ToolObservation],
     ) -> tuple[str, list[Citation]]:
-        evidence_ids, task_ids = (
-            cls._reasoner_reference_ids(
-                reasoner_output
-            )
+        answer, citations, _warnings = cls._resolve_citations_with_warnings(
+            answer_markdown=answer_markdown,
+            reasoner_output=reasoner_output,
+            research_evidence=research_evidence,
+            observations=observations,
         )
-
-        allowed_evidence_ids = set(evidence_ids)
-        allowed_task_ids = set(task_ids)
-
-        evidence_by_id = cls._index_evidence(
-            research_evidence
-        )
-        observations_by_id = cls._index_observations(
-            observations
-        )
-
-        marker_tokens = (
-            cls._ANY_DOUBLE_BRACKET_PATTERN
-            .findall(answer_markdown)
-        )
-
-        for token in marker_tokens:
-            if cls._MARKER_PATTERN.fullmatch(token) is None:
-                raise ValueError(
-                    "Malformed citation marker: "
-                    f"{token}"
-                )
-
-        marker_numbers: dict[
-            tuple[str, str],
-            int,
-        ] = {}
-        citations: list[Citation] = []
-
-        def replace_marker(
-            match: re.Match[str],
-        ) -> str:
-            marker_type = match.group(1)
-            source_id = match.group(2)
-            marker_key = (
-                marker_type,
-                source_id,
-            )
-
-            if marker_type == "evidence":
-                if source_id not in allowed_evidence_ids:
-                    raise ValueError(
-                        "Synthesizer referenced an evidence_id "
-                        "not selected by Reasoner: "
-                        f"{source_id}"
-                    )
-
-                evidence = evidence_by_id.get(
-                    source_id
-                )
-
-                if evidence is None:
-                    raise ValueError(
-                        "Synthesizer referenced unknown "
-                        f"evidence_id: {source_id}"
-                    )
-
-            else:
-                if source_id not in allowed_task_ids:
-                    raise ValueError(
-                        "Synthesizer referenced a task_id "
-                        "not selected by Reasoner: "
-                        f"{source_id}"
-                    )
-
-                observation = observations_by_id.get(
-                    source_id
-                )
-
-                if observation is None:
-                    raise ValueError(
-                        "Synthesizer referenced unknown "
-                        f"task_id: {source_id}"
-                    )
-
-            citation_number = marker_numbers.get(
-                marker_key
-            )
-
-            if citation_number is None:
-                citation_number = len(citations) + 1
-                marker_numbers[marker_key] = (
-                    citation_number
-                )
-
-                if marker_type == "evidence":
-                    citation = cls._evidence_citation(
-                        citation_id=str(citation_number),
-                        evidence=evidence,
-                    )
-                else:
-                    citation = cls._tool_citation(
-                        citation_id=str(citation_number),
-                        observation=observation,
-                    )
-
-                citations.append(citation)
-
-            return f"[{citation_number}]"
-
-        answer = cls._MARKER_PATTERN.sub(
-            replace_marker,
-            answer_markdown,
-        )
-
-        answer = cls._CITATION_SPACING_PATTERN.sub(
-            "]",
-            answer,
-        )
-
-        if "[[" in answer or "]]" in answer:
-            raise ValueError(
-                "Unresolved citation marker in answer."
-            )
-
-        return (
-            answer.strip(),
-            citations,
-        )
+        return answer, citations
 
     # ========================================================
     # USED TOOLS
@@ -842,8 +907,25 @@ INPUT CONTEXT:
 
         self._validate_llm_text(draft)
 
-        answer, citations = self._resolve_citations(
-            answer_markdown=draft.answer_markdown,
+        answer_markdown = draft.answer_markdown
+        output_warnings: list[str] = []
+        if plan.intent.value == "ITINERARY":
+            expected_headings = [
+                section.heading
+                for section in reasoner_output.sections
+                if re.search(r"\b(?:ngày|day)\s*\d+\b", section.heading, re.IGNORECASE)
+            ]
+            if expected_headings and not all(
+                heading.casefold() in answer_markdown.casefold()
+                for heading in expected_headings
+            ):
+                answer_markdown = self._grounded_fallback_answer(reasoner_output)
+                output_warnings.append(
+                    "The itinerary output contract was restored from the grounded answer plan."
+                )
+
+        answer, citations, citation_warnings = self._resolve_citations_with_warnings(
+            answer_markdown=answer_markdown,
             reasoner_output=reasoner_output,
             research_evidence=selected_evidence,
             observations=selected_observations,
@@ -857,5 +939,10 @@ INPUT CONTEXT:
             suggested_followups=(
                 draft.suggested_followups
             ),
-            degraded=reasoner_output.degraded,
+            warnings=list(dict.fromkeys([*output_warnings, *citation_warnings])),
+            degraded=(
+                reasoner_output.degraded
+                or bool(output_warnings)
+                or bool(citation_warnings)
+            ),
         )

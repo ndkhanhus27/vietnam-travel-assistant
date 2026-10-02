@@ -39,3 +39,18 @@ def normalize_text(
     )
 
     return value.strip()
+
+
+def sanitize_source_title(value: str, *, fallback: str) -> str:
+    """Remove common scraped asset labels from user-facing source titles."""
+    title = " ".join(str(value or "").split())
+    if not title:
+        return fallback
+
+    parts = [
+        part
+        for part in title.split()
+        if part.casefold() != "svg" and not part.casefold().endswith(".svg")
+    ]
+    cleaned = " ".join(parts).strip(" |-_")
+    return cleaned or fallback

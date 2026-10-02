@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import re
+import unicodedata
 from typing import Any
 
 from google.genai import types
@@ -43,6 +46,9 @@ from pipeline.agents.schemas import (
     WeatherMode,
     WeatherRequest,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -1019,6 +1025,139 @@ INPUT
         return output
 
     @staticmethod
+    def _fold_text(value: str) -> str:
+        normalized = unicodedata.normalize("NFD", value.casefold())
+        folded = "".join(
+            character
+            for character in normalized
+            if unicodedata.category(character) != "Mn"
+        )
+        return folded.replace("đ", "d")
+
+    @classmethod
+    def _is_booking_transaction(cls, query: str) -> bool:
+        folded = cls._fold_text(query)
+        patterns = (
+            r"\bdat\s+(?:giup\s+)?(?:toi\s+)?(?:phong|khach san|tour|ve)\b",
+            r"\bbook\s+(?:giup\s+)?(?:toi\s+)?",
+            r"\bmua\s+ve\s+.*\bgiup\s+(?:toi|minh)\b",
+            r"\bthanh\s+toan\s+.*\bgiup\s+(?:toi|minh)\b",
+        )
+        return any(re.search(pattern, folded) for pattern in patterns)
+
+    @classmethod
+    def _requires_fresh_web(cls, query: str) -> bool:
+        folded = cls._fold_text(query)
+        freshness_phrases = (
+            "hien tai",
+            "hien nay",
+            "hom nay",
+            "tuan nay",
+            "moi nhat",
+            "dang hot",
+            "nam nay",
+        )
+        return any(phrase in folded for phrase in freshness_phrases)
+
+    @classmethod
+    def _strengthen_specific_entities(
+        cls,
+        query: str,
+        entities: list[str],
+    ) -> list[str]:
+        prefixes = ("ga", "san bay", "ben xe")
+        folded_query = cls._fold_text(query)
+        strengthened: list[str] = []
+
+        for entity in entities:
+            folded_entity = cls._fold_text(entity)
+            replacement = entity
+            for prefix in prefixes:
+                phrase = f"{prefix} {folded_entity}"
+                if phrase in folded_query and not folded_entity.startswith(
+                    f"{prefix} "
+                ):
+                    start = folded_query.index(phrase)
+                    replacement = query[start : start + len(phrase)]
+                    break
+            strengthened.append(replacement)
+
+        return cls._unique_strings(strengthened)
+
+    def _apply_deterministic_semantics(
+        self,
+        *,
+        query: str,
+        draft: PlannerDraft,
+        context: ConversationContext | None,
+    ) -> PlannerDraft:
+        if self._is_booking_transaction(query):
+            return draft.model_copy(
+                update={
+                    "intent": Intent.OUT_OF_SCOPE,
+                    "goal": (
+                        "Giải thích giới hạn không thể thực hiện đặt chỗ, "
+                        "mua vé hoặc thanh toán thay người dùng."
+                    ),
+                    "freshness_required": False,
+                    "is_compound": False,
+                    "needs_travel_knowledge": False,
+                    "needs_weather": False,
+                    "needs_web_search": False,
+                    "needs_routing": False,
+                    "needs_budget": False,
+                    "semantic_subtasks": [],
+                    "tool_arguments": {},
+                }
+            )
+
+        pending = context.pending_clarification if context is not None else None
+        update: dict[str, Any] = {}
+
+        if pending is not None and pending.original_intent is not None:
+            update["intent"] = pending.original_intent
+            if pending.original_goal:
+                update["goal"] = pending.original_goal
+            update["entities"] = self._unique_strings(
+                [*pending.original_entities, *draft.entities]
+            )
+            logger.info(
+                "Clarification resumed original intent",
+                extra={"intent": pending.original_intent.value},
+            )
+
+        effective_intent = update.get("intent", draft.intent)
+        if (
+            effective_intent
+            in {Intent.FACTUAL_TRAVEL, Intent.RECOMMENDATION, Intent.CURRENT_INFO}
+            and self._requires_fresh_web(query)
+        ):
+            update.update(
+                {
+                    "intent": Intent.CURRENT_INFO,
+                    "freshness_required": True,
+                    "needs_web_search": True,
+                    "needs_travel_knowledge": False,
+                }
+            )
+
+        entities = update.get("entities", draft.entities)
+        update["entities"] = self._strengthen_specific_entities(query, entities)
+        return draft.model_copy(update=update)
+
+    @staticmethod
+    def _resolved_query(
+        query: str,
+        context: ConversationContext | None,
+    ) -> str:
+        if context is None or context.pending_clarification is None:
+            return query
+        return (
+            f"{context.pending_clarification.original_query}\n"
+            f"Thông tin bổ sung: {query}"
+        )
+
+    @staticmethod
     def _build_constraints(
         draft: PlannerDraft,
     ) -> list[ExtractedConstraint]:
@@ -1328,6 +1467,7 @@ INPUT
                 current_constraints=(
                     current_constraints
                 ),
+                intent=draft.intent,
             )
         )
 
@@ -1946,9 +2086,15 @@ INPUT
             )
         )
 
+        draft = self._apply_deterministic_semantics(
+            query=query,
+            draft=draft,
+            context=context,
+        )
+
         return (
             self._build_execution_plan(
-                query=query,
+                query=self._resolved_query(query, context),
                 draft=draft,
                 context=context,
             )

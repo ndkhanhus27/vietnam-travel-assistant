@@ -165,6 +165,16 @@ class ContextBuilder:
         ConstraintSource.CURRENT_MESSAGE: 40,
     }
 
+    _RELEVANT_CONTEXT_KEYS: dict[Intent, frozenset[str]] = {
+        Intent.FACTUAL_TRAVEL: frozenset({"destination"}),
+        Intent.RECOMMENDATION: frozenset({"destination"}),
+        Intent.COMPARISON: frozenset({"comparison_targets"}),
+        Intent.ITINERARY: frozenset({"destination", "trip_duration"}),
+        Intent.WEATHER: frozenset({"destination"}),
+        Intent.ROUTING: frozenset({"origin", "destination"}),
+        Intent.CURRENT_INFO: frozenset({"destination"}),
+    }
+
     def __init__(
         self,
         *,
@@ -514,6 +524,7 @@ class ContextBuilder:
         current_constraints: list[
             ExtractedConstraint
         ],
+        intent: Intent | None = None,
     ) -> list[
         ExtractedConstraint
     ]:
@@ -532,11 +543,28 @@ class ContextBuilder:
                 )
             )
 
+        current_keys = {
+            self._normalize_key(item.key)
+            for item in current_constraints
+            if self._has_value(item.value)
+        }
+
+        if context.pending_clarification is not None:
+            previous = context.pending_clarification.known_constraints
+        else:
+            relevant_keys = self._RELEVANT_CONTEXT_KEYS.get(
+                intent,
+                frozenset(),
+            )
+            missing_relevant_keys = relevant_keys - current_keys
+            previous = [
+                item
+                for item in context.known_constraints
+                if self._normalize_key(item.key) in missing_relevant_keys
+            ]
+
         return self.merge_constraints(
-            previous=(
-                context
-                .known_constraints
-            ),
+            previous=previous,
 
             current=(
                 current_constraints

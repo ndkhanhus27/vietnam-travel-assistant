@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import re
 from typing import Any
 
 from google.genai import types
@@ -14,7 +16,11 @@ from pipeline.agents.llm_runtime import (
 from pipeline.agents.schemas import (
     EvidenceItem,
     ExecutionPlan,
+    Intent,
     ReasonerOutput,
+    ReasonerPoint,
+    ReasonerSection,
+    TaskStatus,
     ToolName,
     ToolObservation,
     ValidationResult,
@@ -381,6 +387,11 @@ class TravelReasoner:
                 plan.entities
             ),
 
+            "constraints": [
+                item.model_dump(mode="json")
+                for item in plan.constraints
+            ],
+
             "research_depth": (
                 plan.research_depth.value
             ),
@@ -571,6 +582,22 @@ FRESHNESS RULE:
 - Keep time-specific facts and general destination context in separate
   points when they require different sources.
 
+ITINERARY OUTPUT CONTRACT:
+
+- For ITINERARY, create explicit sections headed Ngày 1, Ngày 2, ...
+  for every requested day.
+- Group only evidence-backed places and activities under those days.
+- Reflect current user preferences from constraints.
+- Present this as a reference itinerary, not an optimized route.
+- Do not invent exact durations or travel times.
+
+BUDGET GROUNDING CONTRACT:
+
+- The budget calculator performs arithmetic only; it is not a price estimator.
+- If no successful calculator observation or price evidence exists, do not
+  invent hotel, food, transport, or total costs.
+- Separate known costs, explicit assumptions, and unknown costs.
+
 ANSWER DEPTH POLICY:
 
 Research depth determines the expected richness of the answer plan.
@@ -748,6 +775,100 @@ INPUT CONTEXT:
             }
         )
 
+    @staticmethod
+    def _trip_days(plan: ExecutionPlan) -> int | None:
+        for constraint in plan.constraints:
+            if constraint.key not in {"trip_duration", "trip_duration_days", "days"}:
+                continue
+            if isinstance(constraint.value, int):
+                return constraint.value if 1 <= constraint.value <= 14 else None
+            match = re.search(r"\b(\d{1,2})\s*ngày\b", str(constraint.value), re.IGNORECASE)
+            if match:
+                value = int(match.group(1))
+                return value if 1 <= value <= 14 else None
+        return None
+
+    @classmethod
+    def _enforce_itinerary_structure(
+        cls,
+        output: ReasonerOutput,
+        plan: ExecutionPlan,
+    ) -> ReasonerOutput:
+        if plan.intent != Intent.ITINERARY:
+            return output
+        days = cls._trip_days(plan)
+        if days is None:
+            return output
+
+        headings = " ".join(section.heading.casefold() for section in output.sections)
+        if all(re.search(rf"\b(?:ngày|day)\s*{day}\b", headings) for day in range(1, days + 1)):
+            return output
+
+        points = [point for section in output.sections for point in section.points]
+        chunk_size = max(1, math.ceil(len(points) / days)) if points else 1
+        sections: list[ReasonerSection] = []
+        for day in range(1, days + 1):
+            start = (day - 1) * chunk_size
+            end = start + chunk_size
+            sections.append(
+                ReasonerSection(
+                    heading=f"Ngày {day}",
+                    purpose=f"Lịch trình tham khảo cho ngày {day}",
+                    points=points[start:end],
+                )
+            )
+
+        limitations = list(output.limitations)
+        disclaimer = (
+            "Lịch trình chỉ mang tính tham khảo và chưa phải lộ trình tối ưu."
+        )
+        if disclaimer not in limitations:
+            limitations.append(disclaimer)
+        return output.model_copy(
+            update={"sections": sections, "limitations": limitations}
+        )
+
+    @staticmethod
+    def _enforce_budget_grounding(
+        output: ReasonerOutput,
+        plan: ExecutionPlan,
+        observations: list[ToolObservation],
+        research_evidence: list[EvidenceItem],
+    ) -> ReasonerOutput:
+        if plan.intent != Intent.BUDGET:
+            return output
+        calculator_succeeded = any(
+            item.tool == ToolName.BUDGET and item.status == TaskStatus.SUCCESS
+            for item in observations
+        )
+        if calculator_succeeded or research_evidence:
+            return output
+
+        limitation = (
+            "Chưa có chi phí do người dùng cung cấp hoặc bằng chứng giá để "
+            "ước tính tổng ngân sách một cách đáng tin cậy."
+        )
+        return output.model_copy(
+            update={
+                "sections": [
+                    ReasonerSection(
+                        heading="Thông tin cần bổ sung",
+                        purpose="Không suy đoán giá khi thiếu dữ liệu đầu vào",
+                        points=[
+                            ReasonerPoint(
+                                text=(
+                                    "Cần chi phí hoặc giả định rõ ràng cho lưu trú, "
+                                    "ăn uống và di chuyển trước khi tính tổng."
+                                )
+                            )
+                        ],
+                    )
+                ],
+                "limitations": list(dict.fromkeys([*output.limitations, limitation])),
+                "degraded": True,
+            }
+        )
+
     # ========================================================
     # PUBLIC
     # ========================================================
@@ -757,33 +878,20 @@ INPUT CONTEXT:
         *,
         query: str,
         plan: ExecutionPlan,
-        observations: list[
-            ToolObservation
-        ],
-        research_evidence: list[
-            EvidenceItem
-        ],
+        observations: list[ToolObservation],
+        research_evidence: list[EvidenceItem],
         validation: ValidationResult,
     ) -> ReasonerOutput:
-
         query = query.strip()
-
         if not query:
+            raise ValueError("query cannot be empty.")
 
-            raise ValueError(
-                "query cannot be empty."
-            )
-
-        prompt = (
-            self._build_prompt(
-                query=query,
-                plan=plan,
-                observations=observations,
-                research_evidence=(
-                    research_evidence
-                ),
-                validation=validation,
-            )
+        prompt = self._build_prompt(
+            query=query,
+            plan=plan,
+            observations=observations,
+            research_evidence=research_evidence,
+            validation=validation,
         )
 
         # ====================================================
@@ -849,6 +957,14 @@ INPUT CONTEXT:
                 "answer_type": plan.intent.value,
                 "answer_goal": plan.goal,
             }
+        )
+
+        output = self._enforce_itinerary_structure(output, plan)
+        output = self._enforce_budget_grounding(
+            output,
+            plan,
+            observations,
+            research_evidence,
         )
 
         # ====================================================

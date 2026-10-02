@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any
 
@@ -7,6 +8,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    field_validator,
     model_validator,
 )
 
@@ -1114,6 +1116,10 @@ class AgentResponse(StrictModel):
         default_factory=list,
     )
 
+    warnings: list[str] = Field(
+        default_factory=list,
+    )
+
     degraded: bool = False
 
     @model_validator(mode="after")
@@ -1205,3 +1211,49 @@ class BudgetRequest(StrictModel):
     )
 
     original_query: str | None = None
+
+    @field_validator(
+        "total_budget",
+        "intercity_transport_cost",
+        "accommodation_cost",
+        "food_cost",
+        "ticket_cost",
+        "local_transport_cost",
+        "other_cost",
+        mode="before",
+    )
+    @classmethod
+    def normalize_money_amount(cls, value: Any) -> Any:
+        if value is None or isinstance(value, (int, float)):
+            return value
+        if not isinstance(value, str):
+            return value
+
+        text_value = value.strip().casefold()
+        if not text_value:
+            return value
+
+        multiplier = 1.0
+        units = (
+            (("tỷ", "ty"), 1_000_000_000.0),
+            (("triệu", "trieu"), 1_000_000.0),
+            (("nghìn", "nghin", "ngàn", "ngan", "k"), 1_000.0),
+        )
+        for names, candidate_multiplier in units:
+            if any(re.search(rf"\b{re.escape(name)}\b", text_value) for name in names):
+                multiplier = candidate_multiplier
+                break
+
+        numeric_text = re.sub(r"[^0-9,.-]", "", text_value)
+        if not numeric_text:
+            return value
+
+        if multiplier != 1.0:
+            numeric_text = numeric_text.replace(".", "").replace(",", ".")
+        else:
+            numeric_text = numeric_text.replace(".", "").replace(",", "")
+
+        try:
+            return float(numeric_text) * multiplier
+        except ValueError:
+            return value

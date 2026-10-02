@@ -14,7 +14,7 @@ from pipeline.rag.reranker import (
     TravelReranker,
 )
 
-from .utils import normalize_text
+from .utils import normalize_text, sanitize_source_title
 from .web import WebSearchTool
 
 
@@ -189,8 +189,6 @@ class TravelKnowledgeTool:
             if target in title:
                 return True
 
-            if title in target:
-                return True
 
         # ----------------------------------------------------
         # PRIMARY ENTITIES
@@ -214,8 +212,6 @@ class TravelKnowledgeTool:
             if target in candidate:
                 return True
 
-            if candidate in target:
-                return True
 
         return False
 
@@ -239,8 +235,10 @@ class TravelKnowledgeTool:
             ),
 
             title=(
-                chunk.title
-                or "Travel document"
+                sanitize_source_title(
+                    chunk.title or "",
+                    fallback="Travel document",
+                )
             ),
 
             content=(

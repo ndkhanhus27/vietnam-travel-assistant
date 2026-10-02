@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from pipeline.agents.schemas import (
@@ -12,7 +13,7 @@ from pipeline.agents.schemas import (
     WeatherRequest,
 )
 
-from .budget import BudgetTool
+from .budget import BudgetTool, normalize_budget_arguments
 from .distance_matrix import DistanceMatrixTool
 from .map_location import MapLocationTool
 from .routing import RoutingTool
@@ -21,6 +22,9 @@ from .web import WebSearchTool
 
 if TYPE_CHECKING:
     from .knowledge import TravelKnowledgeTool
+
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -442,7 +446,6 @@ class ToolRegistry:
             )
 
         except Exception as exc:
-
             return self._failed(
                 task=task,
 
@@ -473,11 +476,16 @@ class ToolRegistry:
             request = (
                 BudgetRequest
                 .model_validate(
-                    task.arguments
+                    normalize_budget_arguments(task.arguments)
                 )
             )
 
         except Exception as exc:
+
+            logger.warning(
+                "Budget argument normalization failure",
+                extra={"argument_fields": sorted(task.arguments)},
+            )
 
             return self._failed(
                 task=task,

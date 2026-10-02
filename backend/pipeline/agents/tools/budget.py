@@ -374,3 +374,70 @@ class BudgetTool:
 
             source_count=1,
         )
+
+
+_BUDGET_FIELDS = {
+    "currency",
+    "travelers",
+    "days",
+    "total_budget",
+    "intercity_transport_cost",
+    "accommodation_cost",
+    "food_cost",
+    "ticket_cost",
+    "local_transport_cost",
+    "other_cost",
+    "original_query",
+}
+
+_BUDGET_ALIASES = {
+    "budget": "total_budget",
+    "hotel": "accommodation_cost",
+    "hotel_cost": "accommodation_cost",
+    "accommodation": "accommodation_cost",
+    "food": "food_cost",
+    "meals": "food_cost",
+    "transport": "local_transport_cost",
+    "transport_cost": "local_transport_cost",
+    "local_transport": "local_transport_cost",
+    "intercity_transport": "intercity_transport_cost",
+    "tickets": "ticket_cost",
+    "entrance_fees": "ticket_cost",
+    "other": "other_cost",
+    "people": "travelers",
+    "party_size": "travelers",
+    "duration_days": "days",
+}
+
+
+def normalize_budget_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    """Map planner-friendly budget categories to the strict tool contract."""
+    normalized: dict[str, Any] = {}
+
+    def assign(key: str, value: Any) -> None:
+        canonical = _BUDGET_ALIASES.get(key.strip().casefold(), key)
+        if isinstance(value, dict):
+            value = value.get("amount", value.get("value", value.get("total")))
+        if canonical in _BUDGET_FIELDS and value is not None:
+            normalized[canonical] = value
+
+    for key, value in arguments.items():
+        if key in {"expenses", "costs"}:
+            if isinstance(value, dict):
+                for expense_key, expense_value in value.items():
+                    assign(str(expense_key), expense_value)
+            elif isinstance(value, list):
+                for item in value:
+                    if not isinstance(item, dict):
+                        continue
+                    category = item.get("category") or item.get("name")
+                    amount = item.get("amount") or item.get("value")
+                    if category is not None:
+                        assign(str(category), amount)
+            continue
+        assign(str(key), value)
+
+    if "query" in arguments and "original_query" not in normalized:
+        normalized["original_query"] = str(arguments["query"])
+
+    return normalized

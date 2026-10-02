@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import logging
+import re
+from datetime import datetime, timezone
+
 from pipeline.agents.schemas import (
     EvidenceItem,
     EvidenceSource,
@@ -11,6 +15,10 @@ from pipeline.agents.schemas import (
     ValidationIssue,
     ValidationResult,
 )
+from pipeline.agents.tools.utils import normalize_text
+
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================
@@ -62,6 +70,8 @@ class AgentValidator:
         "ROUTING_ORIGIN_NOT_FOUND",
         "ROUTING_DESTINATION_NOT_FOUND",
         "ROUTING_NO_ROUTE",
+        "ROUTING_IMPLAUSIBLE",
+        "ROUTING_AMBIGUOUS_GEOCODING",
 
         # Distance Matrix deterministic failures.
         "DISTANCE_MATRIX_MODE_UNSUPPORTED",
@@ -394,7 +404,74 @@ class AgentValidator:
                 )
             ]
 
+        current_year = datetime.now(timezone.utc).year
+
+        def explicitly_stale(item: EvidenceItem) -> bool:
+            published = item.metadata.get("published_date")
+            text = " ".join(
+                str(value)
+                for value in (published, item.title, item.content)
+                if value
+            )
+            years = [int(value) for value in re.findall(r"\b20\d{2}\b", text)]
+            return bool(years) and max(years) < current_year - 1
+
+        if all(explicitly_stale(item) for item in web_evidence):
+            return [
+                ValidationIssue(
+                    code="CURRENT_INFO_EVIDENCE_STALE",
+                    message=(
+                        "Current information is supported only by "
+                        "explicitly old Web evidence."
+                    ),
+                    task_id=successful_web[0].task_id,
+                    recoverable=True,
+                )
+            ]
+
         return []
+
+    @staticmethod
+    def _validate_entity_specificity(
+        *,
+        plan: ExecutionPlan,
+        research_evidence: list[EvidenceItem],
+    ) -> list[ValidationIssue]:
+        if plan.intent != Intent.FACTUAL_TRAVEL or len(plan.entities) != 1:
+            return []
+        if not any(task.tool == ToolName.RAG for task in plan.subtasks):
+            return []
+
+        target = normalize_text(plan.entities[0])
+        if not target or not research_evidence:
+            return []
+
+        specific = [
+            item
+            for item in research_evidence
+            if target in normalize_text(f"{item.title} {item.content}")
+        ]
+        if specific:
+            return []
+
+        logger.warning(
+            "RAG evidence deemed insufficient for named entity",
+            extra={"entity": plan.entities[0]},
+        )
+        rag_task = next(
+            task for task in plan.subtasks if task.tool == ToolName.RAG
+        )
+        return [
+            ValidationIssue(
+                code="ENTITY_EVIDENCE_INSUFFICIENT",
+                message=(
+                    "Retrieved evidence does not specifically support "
+                    f"the named entity: {plan.entities[0]}"
+                ),
+                task_id=rag_task.task_id,
+                recoverable=True,
+            )
+        ]
 
     # ========================================================
     # ENTITY COVERAGE
@@ -736,6 +813,13 @@ class AgentValidator:
             self._validate_current_info(
                 plan=plan,
                 observations=observations,
+                research_evidence=research_evidence,
+            )
+        )
+
+        issues.extend(
+            self._validate_entity_specificity(
+                plan=plan,
                 research_evidence=research_evidence,
             )
         )
