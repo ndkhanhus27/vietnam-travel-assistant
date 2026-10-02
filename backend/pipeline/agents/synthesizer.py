@@ -8,6 +8,7 @@ from typing import Any
 from google.genai import types
 
 from app.core.config import settings
+from pipeline.agents.context import ConversationContext
 
 from pipeline.agents.llm_runtime import (
     GeminiRuntime,
@@ -28,6 +29,7 @@ from pipeline.agents.schemas import (
     ToolObservation,
     ValidationResult,
 )
+from pipeline.agents.tools.utils import format_tool_data_for_presentation
 
 
 # ============================================================
@@ -301,6 +303,7 @@ class TravelSynthesizer:
         evidence: list[EvidenceItem],
         observations: list[ToolObservation],
         validation: ValidationResult,
+        conversation_context: ConversationContext | None = None,
     ) -> str:
         detail_instruction = (
             self._DETAIL_INSTRUCTIONS.get(
@@ -356,9 +359,23 @@ class TravelSynthesizer:
             ),
             "research_evidence": evidence_context,
             "tool_observations": [
-                item.model_dump(mode="json")
+                {
+                    **item.model_dump(mode="json"),
+                    "data": format_tool_data_for_presentation(item.data),
+                }
                 for item in observations
             ],
+            "response_modifier": (
+                plan.response_modifier.value
+                if plan.response_modifier is not None
+                else None
+            ),
+            "previous_answer": (
+                conversation_context.active_task.previous_answer
+                if conversation_context is not None
+                and conversation_context.active_task is not None
+                else None
+            ),
         }
 
         return f"""
@@ -421,6 +438,33 @@ For travel recommendations:
 
 - Stylistic wording is allowed only when it does not introduce a new
   factual characterization.
+
+- For a "where should I go" request, keep the answer about places to visit
+  and relevant activities. Do not insert accommodation, hotels, MICE, golf,
+  or generic tourism-industry material unless requested.
+- Omit a reasoner point if its primary substance is accommodation or lodging
+  and the user asked broadly for places to visit or activities.
+
+- Treat weather probabilities cautiously. Do not turn a modest chance of
+  rain into a guarantee of good or bad conditions; offer a proportionate
+  backup suggestion when the grounded plan includes one.
+
+FOLLOW-UP REFINEMENT:
+
+- EXPAND means more useful detail about the same task and the same main
+  recommendations. It never means adding unrelated topics.
+- CONDENSE means a shorter rendering of the same answer with its key facts
+  preserved.
+- ADD_OPTIONS should prioritize supported options not already named in the
+  previous answer.
+- Explicit current-turn constraints always override prior context.
+
+NUMBER PRESENTATION:
+
+- Present weather values for people, not as raw API floats: use sensible
+  rounded temperatures, whole percentages, and about one decimal place for
+  small rain amounts when appropriate.
+- Do not imply precision beyond the supplied presentation data.
 
 ANSWER EXPANSION POLICY:
 
@@ -854,6 +898,7 @@ INPUT CONTEXT:
         observations: list[ToolObservation],
         research_evidence: list[EvidenceItem],
         validation: ValidationResult,
+        conversation_context: ConversationContext | None = None,
     ) -> AgentResponse:
         query = query.strip()
 
@@ -877,6 +922,7 @@ INPUT CONTEXT:
             evidence=selected_evidence,
             observations=selected_observations,
             validation=validation,
+            conversation_context=conversation_context,
         )
 
         response = self.llm_runtime.generate_content(

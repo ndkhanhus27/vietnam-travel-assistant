@@ -239,6 +239,9 @@ class ResearchEvidenceAggregator:
             items,
 
             key=lambda item: (
+                int(item.metadata.get("source_quality_rank", 3))
+                if item.source_type in {EvidenceSource.RAG, EvidenceSource.WEB}
+                else 0,
                 item.score
                 if item.score is not None
                 else float("-inf")
@@ -735,6 +738,9 @@ class EvidenceAggregator:
         return sorted(
             items,
             key=lambda item: (
+                int(item.metadata.get("source_quality_rank", 3))
+                if item.source_type in {EvidenceSource.RAG, EvidenceSource.WEB}
+                else 0,
                 item.score
                 if item.score is not None
                 else float("-inf")

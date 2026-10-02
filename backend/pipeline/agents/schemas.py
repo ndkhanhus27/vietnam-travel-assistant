@@ -119,6 +119,14 @@ class ResearchDepth(str, Enum):
     ENRICHED = "ENRICHED"
     DEEP = "DEEP"
 
+
+class ResponseModifier(str, Enum):
+    """Internal operation applied to the active conversational task."""
+
+    EXPAND = "EXPAND"
+    CONDENSE = "CONDENSE"
+    ADD_OPTIONS = "ADD_OPTIONS"
+
 # ============================================================
 # AVAILABLE TOOLS
 # ============================================================
@@ -768,6 +776,8 @@ class ExecutionPlan(StrictModel):
     research_depth: ResearchDepth = (
         ResearchDepth.BASIC
     )
+
+    response_modifier: ResponseModifier | None = None
 
     subtasks: list[SubTask] = Field(
         default_factory=list,

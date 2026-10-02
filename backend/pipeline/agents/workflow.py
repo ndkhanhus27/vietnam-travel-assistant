@@ -37,6 +37,8 @@ from pipeline.agents.schemas import (
     AgentResponse,
     AgentResponseType,
     ClarificationRequest,
+    Intent,
+    ToolName,
 )
 
 from pipeline.agents.state import (
@@ -437,10 +439,33 @@ class TravelAgentWorkflow:
             )
         )
 
+        plan = state.get("plan")
+        context = state.get("conversation_context")
+        if plan is not None and context is not None and context.active_task is not None:
+            active = context.active_task
+            plan_entities = {item.strip().casefold() for item in plan.entities if item.strip()}
+            active_entities = {item.strip().casefold() for item in active.entities if item.strip()}
+            same_subject = bool(plan_entities & active_entities)
+            inherit = (
+                plan.response_modifier is not None
+                or (plan.intent == Intent.RECOMMENDATION and same_subject)
+            )
+            if inherit:
+                evidence_by_id = {item.evidence_id: item for item in research_evidence}
+                for item in active.research_evidence:
+                    evidence_by_id.setdefault(item.evidence_id, item)
+                research_evidence = list(evidence_by_id.values())
+
+                observations_by_id = {item.task_id: item for item in observations}
+                for item in active.tool_observations:
+                    observations_by_id.setdefault(item.task_id, item)
+                observations = list(observations_by_id.values())
+
         return {
             "research_evidence": (
                 research_evidence
             ),
+            "observations": observations,
         }
 
     # ========================================================
@@ -513,9 +538,30 @@ class TravelAgentWorkflow:
             0,
         )
 
-        return {
+        update: dict[str, Any] = {
             "retry_count": retry_count + 1,
         }
+        validation = state.get("validation")
+        plan = state.get("plan")
+        if validation is not None and plan is not None and any(
+            issue.code == "RECOMMENDATION_COVERAGE_INSUFFICIENT"
+            for issue in validation.issues
+        ):
+            expanded_tasks = []
+            for task in plan.subtasks:
+                if task.tool != ToolName.RAG:
+                    expanded_tasks.append(task)
+                    continue
+                arguments = dict(task.arguments)
+                base_query = str(arguments.get("query") or state.get("query") or "").strip()
+                arguments["query"] = (
+                    f"{base_query}\nMở rộng tìm kiếm để có nhiều lựa chọn du lịch "
+                    "khác nhau, phù hợp trực tiếp với yêu cầu."
+                )
+                expanded_tasks.append(task.model_copy(update={"arguments": arguments}))
+            update["plan"] = plan.model_copy(update={"subtasks": expanded_tasks})
+
+        return update
 
     # ========================================================
     # NODE 7
@@ -588,6 +634,7 @@ class TravelAgentWorkflow:
                     research_evidence
                 ),
                 validation=validation,
+                conversation_context=state.get("conversation_context"),
             )
         )
 
@@ -669,6 +716,10 @@ class TravelAgentWorkflow:
                 "state.validation."
             )
 
+        context = state.get(
+            "conversation_context"
+        )
+
         response = await asyncio.to_thread(
             self.synthesizer.synthesize,
             query=query,
@@ -679,10 +730,7 @@ class TravelAgentWorkflow:
                 research_evidence
             ),
             validation=validation,
-        )
-
-        context = state.get(
-            "conversation_context"
+            conversation_context=context,
         )
 
         if (
@@ -690,16 +738,14 @@ class TravelAgentWorkflow:
             and response.answer.strip()
         ):
 
-            context = (
-                self.context_builder
-                .append_message(
-                    context,
-                    role=(
-                        ConversationRole
-                        .ASSISTANT
-                    ),
-                    content=response.answer,
-                )
+            context = self.context_builder.update_after_response(
+                context=context,
+                query=query,
+                plan=plan,
+                response=response,
+                reasoner_output=reasoner_output,
+                research_evidence=research_evidence,
+                observations=observations,
             )
 
         return {

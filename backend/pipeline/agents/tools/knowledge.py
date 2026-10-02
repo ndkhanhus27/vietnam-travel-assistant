@@ -14,7 +14,7 @@ from pipeline.rag.reranker import (
     TravelReranker,
 )
 
-from .utils import normalize_text, sanitize_source_title
+from .utils import normalize_text, sanitize_source_title, source_quality_rank
 from .web import WebSearchTool
 
 
@@ -279,6 +279,10 @@ class TravelKnowledgeTool:
 
                 "source_name": (
                     chunk.source_name
+                ),
+
+                "source_quality_rank": source_quality_rank(
+                    chunk.source_url
                 ),
             },
         )

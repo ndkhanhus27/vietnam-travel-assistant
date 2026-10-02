@@ -5,12 +5,17 @@ from enum import Enum
 from pydantic import Field
 
 from pipeline.agents.schemas import (
+    AgentResponse,
     ClarificationRequest,
     ConstraintSource,
+    EvidenceItem,
     ExecutionPlan,
     ExtractedConstraint,
     Intent,
+    ReasonerOutput,
+    ResearchDepth,
     StrictModel,
+    ToolObservation,
 )
 
 
@@ -88,6 +93,26 @@ class PendingClarification(
     )
 
 
+class ActiveTask(StrictModel):
+    """Bounded, grounded state for an unambiguous follow-up turn."""
+
+    query: str = Field(min_length=1)
+    intent: Intent
+    goal: str = Field(min_length=1)
+    entities: list[str] = Field(default_factory=list)
+    constraints: list[ExtractedConstraint] = Field(default_factory=list)
+    research_depth: ResearchDepth = ResearchDepth.BASIC
+    previous_answer: str = Field(default="", max_length=6000)
+    research_evidence: list[EvidenceItem] = Field(
+        default_factory=list,
+        max_length=8,
+    )
+    tool_observations: list[ToolObservation] = Field(
+        default_factory=list,
+        max_length=4,
+    )
+
+
 # ============================================================
 # CONVERSATION CONTEXT
 # ============================================================
@@ -130,6 +155,8 @@ class ConversationContext(
         | None
     ) = None
 
+    active_task: ActiveTask | None = None
+
 
 # ============================================================
 # CONTEXT BUILDER
@@ -167,12 +194,25 @@ class ContextBuilder:
 
     _RELEVANT_CONTEXT_KEYS: dict[Intent, frozenset[str]] = {
         Intent.FACTUAL_TRAVEL: frozenset({"destination"}),
-        Intent.RECOMMENDATION: frozenset({"destination"}),
+        Intent.RECOMMENDATION: frozenset({
+            "destination",
+            "travel_date",
+            "travel_date_range",
+            "weather_time_expression",
+            "interests",
+            "activity_preferences",
+        }),
         Intent.COMPARISON: frozenset({"comparison_targets"}),
         Intent.ITINERARY: frozenset({"destination", "trip_duration"}),
         Intent.WEATHER: frozenset({"destination"}),
         Intent.ROUTING: frozenset({"origin", "destination"}),
         Intent.CURRENT_INFO: frozenset({"destination"}),
+        Intent.BUDGET: frozenset({
+            "destination",
+            "trip_duration",
+            "travelers",
+            "budget",
+        }),
     }
 
     def __init__(
@@ -690,6 +730,107 @@ class ContextBuilder:
             }
         )
 
+    @staticmethod
+    def _selected_reference_ids(
+        reasoner_output: ReasonerOutput,
+    ) -> tuple[set[str], set[str]]:
+        evidence_ids = set(reasoner_output.used_evidence_ids)
+        task_ids = set(reasoner_output.used_observation_task_ids)
+        for section in reasoner_output.sections:
+            for point in section.points:
+                evidence_ids.update(point.evidence_ids)
+                task_ids.update(point.observation_task_ids)
+        return evidence_ids, task_ids
+
+    @staticmethod
+    def _compact_evidence(item: EvidenceItem) -> EvidenceItem:
+        content = " ".join(item.content.split())
+        if len(content) > 800:
+            content = content[:800].rstrip() + "..."
+        return item.model_copy(update={"content": content})
+
+    @staticmethod
+    def _compact_observation(item: ToolObservation) -> ToolObservation:
+        def compact(value, *, depth: int = 0):
+            if depth >= 5:
+                return None
+            if isinstance(value, dict):
+                return {
+                    str(key): compact(child, depth=depth + 1)
+                    for key, child in value.items()
+                    if str(key) not in {"local_names", "polyline", "steps"}
+                }
+            if isinstance(value, list):
+                return [compact(child, depth=depth + 1) for child in value[:5]]
+            if isinstance(value, str):
+                return value[:500]
+            return value
+
+        data = compact(item.data)
+        if not isinstance(data, dict):
+            data = {}
+        return item.model_copy(
+            update={
+                "task_id": f"context_{item.tool.value}",
+                "data": data,
+                "evidence": [],
+            }
+        )
+
+    def update_after_response(
+        self,
+        *,
+        context: ConversationContext,
+        query: str,
+        plan: ExecutionPlan,
+        response: AgentResponse,
+        reasoner_output: ReasonerOutput,
+        research_evidence: list[EvidenceItem],
+        observations: list[ToolObservation],
+    ) -> ConversationContext:
+        """Persist only the selected, bounded support for the active task."""
+
+        context = self.append_message(
+            context,
+            role=ConversationRole.ASSISTANT,
+            content=response.answer,
+        )
+
+        if plan.intent in {Intent.GENERAL, Intent.OUT_OF_SCOPE}:
+            return context.model_copy(update={"active_task": None})
+
+        evidence_ids, task_ids = self._selected_reference_ids(reasoner_output)
+        selected_evidence = [
+            self._compact_evidence(item)
+            for item in research_evidence
+            if item.evidence_id in evidence_ids
+        ][:8]
+        selected_observations = [
+            self._compact_observation(item)
+            for item in observations
+            if item.task_id in task_ids
+        ][:4]
+
+        previous = context.active_task
+        if plan.response_modifier is not None and previous is not None:
+            if not selected_evidence:
+                selected_evidence = list(previous.research_evidence)
+            if not selected_observations:
+                selected_observations = list(previous.tool_observations)
+
+        active_task = ActiveTask(
+            query=(previous.query if plan.response_modifier and previous else query),
+            intent=plan.intent,
+            goal=plan.goal,
+            entities=list(plan.entities),
+            constraints=list(plan.constraints),
+            research_depth=plan.research_depth,
+            previous_answer=response.answer[:6000],
+            research_evidence=selected_evidence,
+            tool_observations=selected_observations,
+        )
+        return context.model_copy(update={"active_task": active_task})
+
     # ========================================================
     # PLANNER PAYLOAD
     # ========================================================
@@ -719,12 +860,15 @@ class ContextBuilder:
                 "pending_clarification": (
                     None
                 ),
+                "active_task": None,
             }
 
         pending = (
             context
             .pending_clarification
         )
+
+        active_task = context.active_task
 
         return {
             "summary": (
@@ -795,6 +939,30 @@ class ContextBuilder:
                             mode="json"
                         )
                     ),
+                }
+            ),
+            "active_task": (
+                None
+                if active_task is None
+                else {
+                    "query": active_task.query,
+                    "intent": active_task.intent.value,
+                    "goal": active_task.goal,
+                    "entities": active_task.entities,
+                    "constraints": [
+                        item.model_dump(mode="json")
+                        for item in active_task.constraints
+                    ],
+                    "research_depth": active_task.research_depth.value,
+                    "previous_answer": active_task.previous_answer,
+                    "available_evidence_ids": [
+                        item.evidence_id
+                        for item in active_task.research_evidence
+                    ],
+                    "available_tools": [
+                        item.tool.value
+                        for item in active_task.tool_observations
+                    ],
                 }
             ),
         }

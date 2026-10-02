@@ -9,6 +9,7 @@ from pipeline.agents.schemas import (
     EvidenceSource,
     ExecutionPlan,
     Intent,
+    ResponseModifier,
     TaskStatus,
     ToolName,
     ToolObservation,
@@ -307,6 +308,68 @@ class AgentValidator:
             )
 
         return issues
+
+    @staticmethod
+    def _validate_recommendation_coverage(
+        *,
+        plan: ExecutionPlan,
+        research_evidence: list[EvidenceItem],
+    ) -> list[ValidationIssue]:
+        if plan.intent != Intent.RECOMMENDATION:
+            return []
+        if plan.response_modifier == ResponseModifier.CONDENSE:
+            return []
+
+        rag_task = next(
+            (task for task in plan.subtasks if task.tool == ToolName.RAG),
+            None,
+        )
+        if rag_task is None:
+            return []
+
+        query = str(rag_task.arguments.get("query") or "").casefold()
+        broad_markers = (
+            "gợi ý",
+            "nên đi đâu",
+            "địa điểm",
+            "chỗ nào",
+            "nơi nào",
+            "thêm",
+        )
+        is_broad = (
+            plan.response_modifier == ResponseModifier.ADD_OPTIONS
+            or any(marker in query for marker in broad_markers)
+        )
+        if not is_broad:
+            return []
+
+        distinct_sources = {item.evidence_id for item in research_evidence}
+        if len(distinct_sources) >= 3:
+            return []
+
+        logger.info(
+            "Recommendation evidence coverage requires expansion",
+            extra={
+                "intent": plan.intent.value,
+                "response_modifier": (
+                    plan.response_modifier.value
+                    if plan.response_modifier is not None
+                    else None
+                ),
+                "evidence_coverage_retry": True,
+            },
+        )
+        return [
+            ValidationIssue(
+                code="RECOMMENDATION_COVERAGE_INSUFFICIENT",
+                message=(
+                    "Broad recommendation has too little independent "
+                    "evidence for useful option coverage."
+                ),
+                task_id=rag_task.task_id,
+                recoverable=True,
+            )
+        ]
 
     # ========================================================
     # CURRENT INFO GROUNDING
@@ -806,6 +869,13 @@ class AgentValidator:
                 research_evidence=(
                     research_evidence
                 ),
+            )
+        )
+
+        issues.extend(
+            self._validate_recommendation_coverage(
+                plan=plan,
+                research_evidence=research_evidence,
             )
         )
 

@@ -8,6 +8,7 @@ from typing import Any
 from google.genai import types
 
 from app.core.config import settings
+from pipeline.agents.context import ConversationContext
 
 from pipeline.agents.llm_runtime import (
     GeminiRuntime,
@@ -25,6 +26,7 @@ from pipeline.agents.schemas import (
     ToolObservation,
     ValidationResult,
 )
+from pipeline.agents.tools.utils import format_tool_data_for_presentation
 
 
 # ============================================================
@@ -173,6 +175,11 @@ class TravelReasoner:
                     "url": (
                         item.url
                     ),
+
+                    "source_quality_rank": item.metadata.get(
+                        "source_quality_rank",
+                        3,
+                    ),
                 }
             )
 
@@ -221,7 +228,7 @@ class TravelReasoner:
                 "resolved_location"
             ] = resolved_location
 
-        return cleaned
+        return format_tool_data_for_presentation(cleaned)
 
     def _serialize_observations(
         self,
@@ -352,6 +359,7 @@ class TravelReasoner:
             EvidenceItem
         ],
         validation: ValidationResult,
+        conversation_context: ConversationContext | None = None,
     ) -> str:
 
         evidence_context = (
@@ -394,6 +402,25 @@ class TravelReasoner:
 
             "research_depth": (
                 plan.research_depth.value
+            ),
+
+            "response_modifier": (
+                plan.response_modifier.value
+                if plan.response_modifier is not None
+                else None
+            ),
+
+            "active_task": (
+                None
+                if conversation_context is None
+                or conversation_context.active_task is None
+                else {
+                    "query": conversation_context.active_task.query,
+                    "intent": conversation_context.active_task.intent.value,
+                    "goal": conversation_context.active_task.goal,
+                    "entities": conversation_context.active_task.entities,
+                    "previous_answer": conversation_context.active_task.previous_answer,
+                }
             ),
 
             "subtasks": [
@@ -498,6 +525,22 @@ Rules:
 17. Each section purpose must state which user need or required subtask
     that section addresses.
 
+18. EXPAND means more grounded detail about the SAME active task. Expand
+    the places or points already in previous_answer and do not introduce
+    unrelated tourism topics.
+
+19. CONDENSE means preserving the key factual content of previous_answer
+    in a much shorter form, without introducing new subject matter.
+
+20. ADD_OPTIONS should prefer supported options not already present in
+    previous_answer. If evidence cannot support new options, state the
+    limitation instead of repeating or inventing items.
+
+21. When multiple Web or RAG sources support the same ordinary factual or
+    recommendation claim, prefer the source with the higher
+    source_quality_rank. Social sources remain usable for trends or community
+    sentiment, but should not displace stronger sources for equivalent facts.
+
 For recommendation, comparison, itinerary, and travel-planning queries:
 
 - Create enough points to cover the important dimensions of the user's
@@ -530,6 +573,32 @@ For recommendation, comparison, itinerary, and travel-planning queries:
   connect those constraints to the travel advice.
 
 - Do not add detail when the evidence does not support it.
+
+- For a broad "where should I go" request, recommend visitable places or
+  relevant activities. Do not drift into accommodation, hotels, MICE, golf,
+  generic destination history, or tourism-industry commentary unless the
+  user asked for those topics.
+- Do not select an evidence item whose primary subject is accommodation or
+  lodging for a broad place/activity recommendation, even if it mentions the
+  requested destination.
+
+- Weather-aware advice must stay probabilistic. A non-zero rain probability
+  does not justify saying outdoor plans are guaranteed to be convenient;
+  suggest a proportionate rain-safe fallback when supported and useful.
+
+INTENT-AWARE ANSWER CONTRACT:
+
+- GENERAL: concise conversational response; do not inherit travel context.
+- FACTUAL_TRAVEL: answer the fact directly, then add only supported context.
+- WEATHER: concise conditions, important rounded values, and a practical but
+  cautious travel implication.
+- ROUTING: route, distance, duration, and a supported practical note.
+- CURRENT_INFO: answer the current question directly with fresh citations.
+- BUDGET: structured arithmetic, assumptions, known values, and unknowns.
+- RECOMMENDATION: several supported options when available and why each fits.
+- COMPARISON: preserve the requested subjects and compare meaningful criteria.
+- ITINERARY: preserve the complete requested day count.
+- OUT_OF_SCOPE: concise boundary and a useful supported alternative.
 
 GROUNDING GRANULARITY RULES:
 
@@ -881,6 +950,7 @@ INPUT CONTEXT:
         observations: list[ToolObservation],
         research_evidence: list[EvidenceItem],
         validation: ValidationResult,
+        conversation_context: ConversationContext | None = None,
     ) -> ReasonerOutput:
         query = query.strip()
         if not query:
@@ -892,6 +962,7 @@ INPUT CONTEXT:
             observations=observations,
             research_evidence=research_evidence,
             validation=validation,
+            conversation_context=conversation_context,
         )
 
         # ====================================================

@@ -36,6 +36,7 @@ from pipeline.agents.schemas import (
     ExtractedConstraint,
     Intent,
     ResearchDepth,
+    ResponseModifier,
     RetrievalMode,
     RoutingLocation,
     RoutingRequest,
@@ -1035,6 +1036,36 @@ INPUT
         return folded.replace("đ", "d")
 
     @classmethod
+    def _response_modifier(cls, query: str) -> ResponseModifier | None:
+        """Recognize only clear, standalone refinement requests."""
+
+        folded = re.sub(r"[^a-z0-9\s]", " ", cls._fold_text(query))
+        folded = re.sub(r"\s+", " ", folded).strip()
+        patterns = {
+            ResponseModifier.EXPAND: (
+                r"^(?:dai|chi tiet) hon$",
+                r"^noi (?:ky|ro) hon$",
+                r"^giai thich ro hon$",
+            ),
+            ResponseModifier.CONDENSE: (
+                r"^ngan hon$",
+                r"^ngan thoi$",
+                r"^rut gon(?: lai)?$",
+                r"^tom tat(?: thoi)?$",
+            ),
+            ResponseModifier.ADD_OPTIONS: (
+                r"^them nua$",
+                r"^them (?:vai )?(?:cho|noi|dia diem)(?: nua)?$",
+                r"^con (?:cho|noi|dia diem) nao (?:nua|khac)(?: khong)?$",
+                r"^goi y them(?: di)?$",
+            ),
+        }
+        for modifier, candidates in patterns.items():
+            if any(re.fullmatch(pattern, folded) for pattern in candidates):
+                return modifier
+        return None
+
+    @classmethod
     def _is_booking_transaction(cls, query: str) -> bool:
         folded = cls._fold_text(query)
         patterns = (
@@ -1114,6 +1145,41 @@ INPUT
         pending = context.pending_clarification if context is not None else None
         update: dict[str, Any] = {}
 
+        modifier = self._response_modifier(query)
+        active_task = context.active_task if context is not None else None
+        if modifier is not None and pending is None and active_task is not None:
+            active_intent = active_task.intent
+            update.update(
+                {
+                    "intent": active_intent,
+                    "goal": active_task.goal,
+                    "entities": list(active_task.entities),
+                    "freshness_required": False,
+                    "is_compound": False,
+                    "needs_travel_knowledge": active_intent in {
+                        Intent.FACTUAL_TRAVEL,
+                        Intent.RECOMMENDATION,
+                        Intent.COMPARISON,
+                        Intent.ITINERARY,
+                    },
+                    "needs_weather": active_intent == Intent.WEATHER,
+                    "needs_web_search": active_intent == Intent.CURRENT_INFO,
+                    "needs_routing": active_intent == Intent.ROUTING,
+                    "needs_budget": active_intent == Intent.BUDGET,
+                    "semantic_subtasks": [],
+                    "tool_arguments": {},
+                    "constraints": [],
+                }
+            )
+            logger.info(
+                "Response modifier inherited active task",
+                extra={
+                    "intent": active_intent.value,
+                    "response_modifier": modifier.value,
+                    "active_context_inherited": True,
+                },
+            )
+
         if pending is not None and pending.original_intent is not None:
             update["intent"] = pending.original_intent
             if pending.original_goal:
@@ -1145,17 +1211,27 @@ INPUT
         update["entities"] = self._strengthen_specific_entities(query, entities)
         return draft.model_copy(update=update)
 
-    @staticmethod
+    @classmethod
     def _resolved_query(
+        cls,
         query: str,
         context: ConversationContext | None,
     ) -> str:
-        if context is None or context.pending_clarification is None:
+        if context is None:
             return query
-        return (
-            f"{context.pending_clarification.original_query}\n"
-            f"Thông tin bổ sung: {query}"
-        )
+        if context.pending_clarification is not None:
+            return (
+                f"{context.pending_clarification.original_query}\n"
+                f"Thông tin bổ sung: {query}"
+            )
+        modifier = cls._response_modifier(query)
+        if modifier is not None and context.active_task is not None:
+            return (
+                f"Tác vụ đang tiếp tục: {context.active_task.query}\n"
+                f"Mục tiêu: {context.active_task.goal}\n"
+                f"Yêu cầu điều chỉnh: {query}"
+            )
+        return query
 
     @staticmethod
     def _build_constraints(
@@ -1448,6 +1524,10 @@ INPUT
         ) = None,
     ) -> ExecutionPlan:
 
+        original_query = query
+        modifier = self._response_modifier(original_query)
+        query = self._resolved_query(original_query, context)
+
         entities = (
             self._unique_strings(
                 draft.entities
@@ -1470,6 +1550,19 @@ INPUT
                 intent=draft.intent,
             )
         )
+
+        if (
+            context is None
+            or context.active_task is None
+            or context.pending_clarification is not None
+        ):
+            modifier = None
+
+        if not entities:
+            for constraint in constraints:
+                if constraint.key == "destination" and isinstance(constraint.value, str):
+                    entities = [constraint.value]
+                    break
 
         subtasks: list[
             SubTask
@@ -1840,6 +1933,28 @@ INPUT
                 )
             )
 
+        # Pure response refinements can reuse the bounded, selected
+        # support persisted with the active task. ADD_OPTIONS intentionally
+        # keeps retrieval because it asks for new grounded material.
+        active_task = context.active_task if context is not None else None
+        if modifier == ResponseModifier.CONDENSE:
+            subtasks = []
+        elif modifier == ResponseModifier.EXPAND and active_task is not None:
+            available_tools = {
+                item.tool
+                for item in active_task.tool_observations
+            }
+            has_research = bool(active_task.research_evidence)
+            subtasks = [
+                task
+                for task in subtasks
+                if not (
+                    task.tool in {ToolName.RAG, ToolName.WEB_SEARCH}
+                    and has_research
+                )
+                and task.tool not in available_tools
+            ]
+
         # ====================================================
         # USED TOOLS
         # ====================================================
@@ -1935,6 +2050,11 @@ INPUT
             research_depth = (
                 ResearchDepth.BASIC
             )
+
+        if modifier == ResponseModifier.EXPAND:
+            research_depth = ResearchDepth.DEEP
+        elif modifier == ResponseModifier.CONDENSE:
+            research_depth = ResearchDepth.BASIC
 
         # ====================================================
         # COVERAGE POLICY
@@ -2034,6 +2154,8 @@ INPUT
                 research_depth
             ),
 
+            response_modifier=modifier,
+
             subtasks=subtasks,
 
             fallback_to_web=(
@@ -2094,7 +2216,7 @@ INPUT
 
         return (
             self._build_execution_plan(
-                query=self._resolved_query(query, context),
+                query=query,
                 draft=draft,
                 context=context,
             )
