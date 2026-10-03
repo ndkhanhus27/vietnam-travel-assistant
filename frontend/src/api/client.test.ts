@@ -12,7 +12,7 @@ const eventTarget = new EventTarget();
 Object.defineProperty(globalThis, "localStorage", { value: new MemoryStorage(), configurable: true });
 Object.defineProperty(globalThis, "window", { value: eventTarget, configurable: true });
 
-const user = { id: "u1", email: "user@example.com", display_name: "User", avatar_url: null, is_verified: false };
+const user = { id: "u1", email: "user@example.com", display_name: "User", avatar_url: null, is_verified: false, is_admin: false };
 const auth = { access_token: "access-new", refresh_token: "refresh-new", token_type: "bearer" as const, expires_in: 900, user };
 
 describe("API client", () => {
@@ -54,6 +54,29 @@ describe("API client", () => {
       refresh_token: "refresh-new",
       user,
     });
+  });
+
+  it("creates a local password only through the authenticated endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api, sessionStore } = await import("./client");
+    sessionStore.set(auth);
+
+    await api.createLocalPassword("NewPassword123!", "NewPassword123!");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:8000/api/v1/auth/local-password",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          password: "NewPassword123!",
+          confirm_password: "NewPassword123!",
+        }),
+        headers: expect.any(Headers),
+      }),
+    );
+    const headers = new Headers(fetchMock.mock.calls[0][1].headers);
+    expect(headers.get("Authorization")).toBe("Bearer access-new");
   });
 
   it("uses one rotating refresh for concurrent 401 responses and retries once", async () => {

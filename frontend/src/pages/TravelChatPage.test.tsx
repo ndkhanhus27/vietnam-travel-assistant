@@ -28,6 +28,6 @@ describe("MessageView", () => {
   it("keeps degraded answers usable and adds a warning", () => {
     const html = renderToStaticMarkup(<MessageView message={message} degraded />);
     expect(html).toContain("Travel answer");
-    expect(html).toContain("Some information could not be fully verified.");
+    expect(html).toContain("Một số thông tin chưa thể được kiểm chứng đầy đủ.");
   });
 });
