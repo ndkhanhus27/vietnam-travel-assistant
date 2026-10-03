@@ -137,13 +137,20 @@ Create the GitHub Environment `production`, protect it as desired, and add:
 
 - Environment secrets: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`,
   `EC2_KNOWN_HOSTS`
-- Repository variable: `GOOGLE_CLIENT_ID`
+- Repository variables: `GOOGLE_CLIENT_ID` and
+  `PRODUCTION_DEPLOY_ENABLED`
+
+Keep `PRODUCTION_DEPLOY_ENABLED` unset or set to `false` until the EC2 host,
+production secrets, and `/opt/vietnam-travel-advisor/.env.production` are
+ready. Set it to `true` to enable automatic deployment after successful CI on
+`main`. Manual `workflow_dispatch` remains available for deliberate releases.
 
 Generate `EC2_KNOWN_HOSTS` from a trusted network and verify the fingerprint
 out of band. Do not replace it with `StrictHostKeyChecking=no`.
 
-CI runs on pushes and pull requests. After successful CI on `main`, the deploy
-workflow builds two GHCR images tagged `sha-<full-commit-sha>`, uploads only
+CI runs on pushes and pull requests. When `PRODUCTION_DEPLOY_ENABLED=true`, a
+successful CI run on `main` starts the deploy workflow. It builds two GHCR
+images tagged `sha-<full-commit-sha>`, uploads only
 Compose and the deploy script, migrates with Alembic, starts services, and
 checks `/health`. Production concurrency prevents overlapping deploys.
 
