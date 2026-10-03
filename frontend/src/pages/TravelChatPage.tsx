@@ -379,6 +379,9 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
   const [name, setName] = useState(user.display_name || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState("");
   const { appearance, setAppearance } = useAppearance();
 
   async function saveProfile(event: FormEvent) {
@@ -396,5 +399,87 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
     }
   }
 
-  return <Modal title="Cài đặt" onClose={onClose} className="settings-modal"><div className="settings-layout"><nav className="settings-tabs" aria-label="Các mục cài đặt"><button className={tab === "appearance" ? "is-active" : ""} onClick={() => setTab("appearance")}>Giao diện</button><button className={tab === "account" ? "is-active" : ""} onClick={() => setTab("account")}>Tài khoản</button></nav><div className="settings-content">{tab === "appearance" ? <section><h3>Giao diện</h3><p>Chọn màu nền bạn muốn sử dụng trong ứng dụng.</p><div className="appearance-options">{appearanceOptions.map((option) => <button key={option.value} className={appearance === option.value ? "is-selected" : ""} onClick={() => setAppearance(option.value)}><span className="appearance-swatch" style={{ background: option.swatch }} /><span>{option.label}</span>{appearance === option.value && <CheckIcon />}</button>)}</div></section> : <section><h3>Tài khoản</h3><div className="account-summary"><span className="avatar account-avatar">{(user.display_name || user.email).slice(0, 1).toUpperCase()}</span><div><strong>{user.display_name || "Chưa đặt tên"}</strong><span>{user.email}</span></div></div><form className="profile-form" onSubmit={saveProfile}><label><span>Tên hiển thị</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>{error && <div className="form-error" role="alert">{error}</div>}<button className="primary-button" disabled={saving}>{saving ? "Đang lưu..." : "Lưu thay đổi"}</button></form><div className="account-actions"><div><strong>Đăng xuất khỏi mọi thiết bị</strong><span>Thu hồi tất cả phiên đăng nhập đang hoạt động của tài khoản này.</span></div><button className="secondary-button" onClick={() => void onLogoutAll()}>Đăng xuất tất cả</button></div></section>}</div></div></Modal>;
+  async function createPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (passwordSaving) return;
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const password = String(form.get("password") || "");
+    const confirmation = String(form.get("confirm_password") || "");
+    setPasswordError("");
+    setPasswordSuccess("");
+    if (password !== confirmation) {
+      setPasswordError("Mật khẩu xác nhận không khớp.");
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await api.createLocalPassword(password, confirmation);
+      formElement.reset();
+      setPasswordSuccess("Đã tạo mật khẩu. Bạn có thể dùng email và mật khẩu này để đăng nhập.");
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.status === 409) {
+        setPasswordError("Tài khoản đã có mật khẩu đăng nhập. Mật khẩu hiện tại không bị thay đổi.");
+      } else if (cause instanceof ApiError && cause.status === 422) {
+        setPasswordError("Mật khẩu phải có từ 8 đến 128 ký tự và hai ô phải trùng khớp.");
+      } else {
+        setPasswordError("Không thể tạo mật khẩu lúc này. Vui lòng thử lại.");
+      }
+    } finally {
+      setPasswordSaving(false);
+    }
+  }
+
+  return (
+    <Modal title="Cài đặt" onClose={onClose} className="settings-modal">
+      <div className="settings-layout">
+        <nav className="settings-tabs" aria-label="Các mục cài đặt">
+          <button className={tab === "appearance" ? "is-active" : ""} onClick={() => setTab("appearance")}>Giao diện</button>
+          <button className={tab === "account" ? "is-active" : ""} onClick={() => setTab("account")}>Tài khoản</button>
+        </nav>
+        <div className="settings-content">
+          {tab === "appearance" ? (
+            <section>
+              <h3>Giao diện</h3>
+              <p>Chọn màu nền bạn muốn sử dụng trong ứng dụng.</p>
+              <div className="appearance-options">
+                {appearanceOptions.map((option) => (
+                  <button key={option.value} className={appearance === option.value ? "is-selected" : ""} onClick={() => setAppearance(option.value)}>
+                    <span className="appearance-swatch" style={{ background: option.swatch }} />
+                    <span>{option.label}</span>
+                    {appearance === option.value && <CheckIcon />}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section>
+              <h3>Tài khoản</h3>
+              <div className="account-summary">
+                <span className="avatar account-avatar">{(user.display_name || user.email).slice(0, 1).toUpperCase()}</span>
+                <div><strong>{user.display_name || "Chưa đặt tên"}</strong><span>{user.email}</span></div>
+              </div>
+              <form className="profile-form" onSubmit={saveProfile}>
+                <label><span>Tên hiển thị</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>
+                {error && <div className="form-error" role="alert">{error}</div>}
+                <button className="primary-button" disabled={saving}>{saving ? "Đang lưu..." : "Lưu thay đổi"}</button>
+              </form>
+              <form className="local-password-form" onSubmit={createPassword}>
+                <div><strong>Tạo mật khẩu đăng nhập</strong><span>Dành cho tài khoản được tạo bằng Google. Thao tác này không thay thế mật khẩu đã có.</span></div>
+                <label><span>Mật khẩu mới</span><input name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required disabled={passwordSaving} /></label>
+                <label><span>Xác nhận mật khẩu</span><input name="confirm_password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required disabled={passwordSaving} /></label>
+                {passwordError && <div className="form-error" role="alert">{passwordError}</div>}
+                {passwordSuccess && <div className="form-success" role="status">{passwordSuccess}</div>}
+                <button className="secondary-button" disabled={passwordSaving}>{passwordSaving ? "Đang tạo..." : "Tạo mật khẩu"}</button>
+              </form>
+              <div className="account-actions">
+                <div><strong>Đăng xuất khỏi mọi thiết bị</strong><span>Thu hồi tất cả phiên đăng nhập đang hoạt động của tài khoản này.</span></div>
+                <button className="secondary-button" onClick={() => void onLogoutAll()}>Đăng xuất tất cả</button>
+              </div>
+            </section>
+          )}
+        </div>
+      </div>
+    </Modal>
+  );
 }
