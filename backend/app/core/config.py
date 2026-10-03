@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     cache_geocode_ttl_seconds: int = Field(default=86_400, gt=0)
 
     gemini_api_key: str | None = None
-    gemini_model: str = "gemini-2.5-flash-lite"
+    gemini_model: str = "gemini-3.5-flash-lite"
 
     entity_extractor_version: str = "entity-v1"
     entity_extract_max_chars: int = 24_000
