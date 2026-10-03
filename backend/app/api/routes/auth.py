@@ -11,6 +11,7 @@ from app.api.dependencies import (
 )
 from app.api.schemas import (
     AuthResponse,
+    CreateLocalPasswordRequest,
     GoogleLoginRequest,
     LoginRequest,
     LogoutRequest,
@@ -71,6 +72,21 @@ async def google_login(
     return AuthResponse.from_result(
         await service.login_with_google(payload.credential)
     )
+
+
+@router.post(
+    "/local-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+async def create_local_password(
+    payload: CreateLocalPasswordRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    _: Annotated[None, Depends(enforce_auth_rate_limit)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> Response:
+    await service.create_local_password(current_user, payload.password)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

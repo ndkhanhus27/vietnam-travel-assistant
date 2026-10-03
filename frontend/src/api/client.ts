@@ -63,6 +63,10 @@ function retryAfter(response: Response) {
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
+function disableGoogleAutoSelect() {
+  window.google?.accounts.id.disableAutoSelect?.();
+}
+
 async function errorFromResponse(response: Response): Promise<ApiError> {
   let detail = "Yêu cầu không thành công. Vui lòng thử lại.";
   try {
@@ -171,6 +175,10 @@ export const api = {
     method: "PATCH",
     body: JSON.stringify({ display_name: displayName }),
   }),
+  createLocalPassword: (password: string, confirmPassword: string) => request<void>("/auth/local-password", {
+    method: "POST",
+    body: JSON.stringify({ password, confirm_password: confirmPassword }),
+  }),
   listConversations: (includeArchived = false) => request<ConversationResponse[]>(`/conversations?limit=100&offset=0&include_archived=${includeArchived}`),
   getConversation: (id: string) => request<ConversationResponse>(`/conversations/${id}`),
   createConversation: () => request<ConversationResponse>("/conversations", { method: "POST", body: "{}" }),
@@ -185,6 +193,7 @@ export const api = {
       if (refreshToken) await request<void>("/auth/logout", { method: "POST", body: JSON.stringify({ refresh_token: refreshToken }) }, false);
     } finally {
       sessionStore.clear();
+      disableGoogleAutoSelect();
     }
   },
   logoutAll: async () => {
@@ -192,6 +201,7 @@ export const api = {
       await request<void>("/auth/logout-all", { method: "POST" });
     } finally {
       sessionStore.clear();
+      disableGoogleAutoSelect();
     }
   },
   adminOverview: () => request<AdminOverview>("/admin/overview"),

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useState } from "react";
+import { FormEvent, useCallback, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api, ApiError } from "../api/client";
 import { useAuth } from "../auth/AuthProvider";
@@ -10,6 +10,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const { authenticate } = useAuth();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const submitting = useRef(false);
   const isLogin = mode === "login";
   const destination = (location.state as { from?: string } | null)?.from || "/";
 
@@ -22,14 +23,34 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     setError(cause.message);
   }, []);
 
+  const handleGoogleError = useCallback((cause: unknown) => {
+    if (!(cause instanceof ApiError)) {
+      setError("Không thể đăng nhập bằng Google. Vui lòng thử lại.");
+      return;
+    }
+    if (cause.status === 429) {
+      setError(cause.retryAfter
+        ? `Bạn thao tác quá nhanh. Vui lòng thử lại sau ${cause.retryAfter} giây.`
+        : "Bạn thao tác quá nhanh. Vui lòng thử lại sau.");
+      return;
+    }
+    if (cause.status === 0 || cause.status >= 500) {
+      setError("Không thể kết nối để đăng nhập bằng Google. Vui lòng thử lại.");
+      return;
+    }
+    setError("Không thể đăng nhập bằng Google. Vui lòng thử lại.");
+  }, []);
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitting.current) return;
     setError("");
     const form = new FormData(event.currentTarget);
     const displayName = String(form.get("display_name") || "").trim();
     const email = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "");
     if (!email || !password) return setError("Vui lòng điền đầy đủ thông tin bắt buộc.");
+    submitting.current = true;
     setLoading(true);
     try {
       const result = isLogin
@@ -40,23 +61,31 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     } catch (cause) {
       handleError(cause);
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
   }
 
   const googleCredential = useCallback(async (credential: string) => {
+    if (submitting.current) return;
+    if (!credential) {
+      setError("Google không trả về thông tin đăng nhập. Vui lòng thử lại.");
+      return;
+    }
     setError("");
+    submitting.current = true;
     setLoading(true);
     try {
       const result = await api.googleLogin(credential);
       authenticate(result);
       navigate(destination, { replace: true });
     } catch (cause) {
-      handleError(cause);
+      handleGoogleError(cause);
     } finally {
+      submitting.current = false;
       setLoading(false);
     }
-  }, [authenticate, destination, handleError, navigate]);
+  }, [authenticate, destination, handleGoogleError, navigate]);
 
   return (
     <main className="auth-page">

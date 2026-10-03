@@ -26,10 +26,32 @@ npm run build
 The default frontend origin is `http://localhost:5173`, matching the backend
 CORS default.
 
+## Google Sign-In setup
+
+1. In Google Cloud Console, configure the OAuth consent screen for the app.
+2. Create an OAuth 2.0 Client ID with application type **Web application**.
+3. Add `http://localhost:5173` to **Authorized JavaScript origins**.
+4. Put the same Web Client ID in both local environment files:
+
+```env
+# backend/.env
+GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+CORS_ORIGINS=http://localhost:5173
+
+# frontend/.env
+VITE_GOOGLE_CLIENT_ID=your-web-client-id.apps.googleusercontent.com
+```
+
+This app uses Google Identity Services ID-token credential mode, so it does
+not require a backend OAuth redirect URI. Do not put a Google client secret in
+the frontend. For deployment, add the real HTTPS frontend origin in Google
+Cloud Console and `CORS_ORIGINS`.
+
 ## Integrated flows
 
 - Local registration, login, session bootstrap, rotating refresh, and logout
 - Google Identity Services credential exchange when configured
+- Authenticated Google-first users can create a local password in account settings
 - Conversation list, create, rename, archive, unarchive, delete, and history
 - POST SSE chat with buffered incremental parsing
 - Progress, tool activity, persisted completion, citations, warnings, and 429

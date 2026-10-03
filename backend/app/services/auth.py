@@ -67,6 +67,10 @@ class PasswordPolicyError(AuthError):
     """Raised when a password falls outside the supported length range."""
 
 
+class LocalPasswordAlreadyConfiguredError(AuthError):
+    """Raised when create-password is used for an existing local account."""
+
+
 class UserNotFoundError(AuthError):
     """Raised when a requested user does not exist."""
 
@@ -318,6 +322,36 @@ class AuthService:
             )
             await self.session.commit()
             return updated
+        except Exception:
+            await self.session.rollback()
+            raise
+
+    async def create_local_password(
+        self,
+        user: User,
+        password: str,
+    ) -> None:
+        """Add a local credential once to an authenticated Google-first user."""
+
+        try:
+            _validate_password(password)
+            existing = await self.repository.get_local_account_for_user(
+                user.id
+            )
+            if existing is not None:
+                raise LocalPasswordAlreadyConfiguredError(
+                    "Local password is already configured"
+                )
+            await self.repository.create_local_account(
+                user_id=user.id,
+                password_hash=hash_password(password),
+            )
+            await self.session.commit()
+        except IntegrityError as exc:
+            await self.session.rollback()
+            raise LocalPasswordAlreadyConfiguredError(
+                "Local password is already configured"
+            ) from exc
         except Exception:
             await self.session.rollback()
             raise

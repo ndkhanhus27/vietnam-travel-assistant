@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.services.auth import AuthResult
 from app.services.chat import ChatResult, MAX_CHAT_MESSAGE_LENGTH
@@ -23,6 +23,19 @@ class LoginRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     credential: str
+
+
+class CreateLocalPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    password: str
+    confirm_password: str
+
+    @model_validator(mode="after")
+    def passwords_must_match(self) -> CreateLocalPasswordRequest:
+        if self.password != self.confirm_password:
+            raise ValueError("Mật khẩu xác nhận không khớp")
+        return self
 
 
 class RefreshRequest(BaseModel):

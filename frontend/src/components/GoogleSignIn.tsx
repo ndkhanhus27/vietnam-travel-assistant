@@ -5,8 +5,9 @@ declare global {
     google?: {
       accounts: {
         id: {
-          initialize: (options: { client_id: string; callback: (response: { credential: string }) => void }) => void;
+          initialize: (options: { client_id: string; callback: (response: { credential?: string }) => void }) => void;
           renderButton: (element: HTMLElement, options: Record<string, string>) => void;
+          disableAutoSelect: () => void;
         };
       };
     };
@@ -27,7 +28,16 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
     const render = () => {
       if (!window.google || !container.current) return;
       container.current.replaceChildren();
-      window.google.accounts.id.initialize({ client_id: clientId, callback: ({ credential }) => onCredential(credential) });
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: ({ credential }) => {
+          if (!credential) {
+            onUnavailable("Google không trả về thông tin đăng nhập. Vui lòng thử lại.");
+            return;
+          }
+          onCredential(credential);
+        },
+      });
       const width = Math.max(240, Math.min(400, container.current.clientWidth));
       window.google.accounts.id.renderButton(container.current, { type: "standard", theme: "outline", size: "large", width: String(width), locale: "vi" });
       setReady(true);

@@ -14,6 +14,7 @@ from app.services.auth import (
     InvalidCredentialsError,
     InvalidEmailError,
     InvalidRefreshTokenError,
+    LocalPasswordAlreadyConfiguredError,
     PasswordPolicyError,
 )
 from app.services.chat import (
@@ -32,6 +33,10 @@ def register_auth_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(InactiveUserError, _inactive_user)
     app.add_exception_handler(InvalidEmailError, _invalid_email)
     app.add_exception_handler(PasswordPolicyError, _invalid_password)
+    app.add_exception_handler(
+        LocalPasswordAlreadyConfiguredError,
+        _local_password_already_configured,
+    )
     app.add_exception_handler(InvalidRefreshTokenError, _invalid_refresh)
     app.add_exception_handler(ExpiredRefreshTokenError, _invalid_refresh)
     app.add_exception_handler(
@@ -89,6 +94,16 @@ async def _invalid_password(request: Request, exc: Exception) -> JSONResponse:
     return _response(
         422,
         "Mật khẩu phải có từ 8 đến 128 ký tự",
+    )
+
+
+async def _local_password_already_configured(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    return _response(
+        status.HTTP_409_CONFLICT,
+        "Tài khoản đã có mật khẩu đăng nhập",
     )
 
 
