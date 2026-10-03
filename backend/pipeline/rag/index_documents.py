@@ -347,6 +347,11 @@ async def run(
 
     print("=" * 78)
 
+    if failed:
+        raise RuntimeError(
+            f"RAG index incomplete: {failed} document(s) failed."
+        )
+
 
 # ================================================================
 # CLI

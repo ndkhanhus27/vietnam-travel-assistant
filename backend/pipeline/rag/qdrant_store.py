@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance,
@@ -65,11 +67,24 @@ class TravelQdrantStore:
         if not points:
             return
 
-        self.client.upsert(
-            collection_name=self.collection_name,
-            points=points,
-            wait=True,
-        )
+        max_attempts = 3
+        for attempt in range(1, max_attempts + 1):
+            try:
+                self.client.upsert(
+                    collection_name=self.collection_name,
+                    points=points,
+                    wait=True,
+                )
+                return
+            except Exception:
+                if attempt == max_attempts:
+                    raise
+                delay = 0.5 * (2 ** (attempt - 1))
+                print(
+                    f"[qdrant] upsert failed; retrying "
+                    f"({attempt}/{max_attempts}) in {delay:.1f}s"
+                )
+                time.sleep(delay)
 
     def count(
         self,

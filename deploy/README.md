@@ -55,14 +55,26 @@ docker compose --env-file .env.production -f docker-compose.prod.yml restart
 Confirm PostgreSQL conversations and the Qdrant collection still exist. Do
 not use `down -v` unless permanent deletion is intended.
 
-The app never indexes Qdrant during startup. Run the existing indexing command
-only as an explicit data operation after checking its collection replacement
-behavior:
+The app never imports corpus data or indexes Qdrant during startup. PostgreSQL
+is the durable corpus source of truth; Qdrant is a derived index. On a fresh
+database, import a validated corpus bundle after Alembic and before indexing:
 
 ```bash
+docker compose --env-file .env.production -f docker-compose.prod.yml cp \
+  corpus.corpus.json.gz backend:/home/app/corpus.corpus.json.gz
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T backend \
+  python -m scripts.corpus_transfer import \
+  --input /home/app/corpus.corpus.json.gz
+docker compose --env-file .env.production -f docker-compose.prod.yml exec -T backend \
+  rm -f /home/app/corpus.corpus.json.gz
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm backend \
-  python -m pipeline.rag.index_documents
+  python -m pipeline.rag.index_documents --recreate
 ```
+
+The bundle contains only `documents` and `entity_candidates`, preserves their
+UUIDs, and imports idempotently. Transfer it to the server through a protected
+administrative channel; never commit it. Do not use `host.docker.internal` or
+a developer database for production reindexing.
 
 ## 3. Required production environment
 
@@ -177,7 +189,59 @@ docker compose --env-file .deploy.env --env-file .env.production \
 curl --fail http://127.0.0.1/health
 ```
 
-## 8. Operations
+## 8. Corpus backup and recovery
+
+Create a corpus-only PostgreSQL backup from the running production backend:
+
+```bash
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml exec -T backend \
+  python -m scripts.corpus_transfer export \
+  --output /home/app/corpus.corpus.json.gz
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml cp \
+  backend:/home/app/corpus.corpus.json.gz ./corpus.corpus.json.gz
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml exec -T backend \
+  rm -f /home/app/corpus.corpus.json.gz
+```
+
+Store that file encrypted and off-instance. To recover, run Alembic, copy the
+bundle into the backend container, run the import command from section 2, then
+rebuild `travel_chunks` explicitly with `index_documents --recreate`. Verify
+the collection count and a real RAG query. A Qdrant snapshot may shorten
+recovery, but it never replaces the PostgreSQL corpus backup.
+
+On a fresh Linux server, initialize data services before the public app:
+
+```bash
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml up -d postgres redis qdrant
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml run --rm backend alembic upgrade head
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml run --rm --no-deps \
+  --volume "$PWD/corpus.corpus.json.gz:/tmp/corpus.corpus.json.gz:ro" \
+  backend python -m scripts.corpus_transfer import \
+  --input /tmp/corpus.corpus.json.gz
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml run --rm --no-deps backend \
+  python -m pipeline.rag.index_documents --recreate
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml up -d --remove-orphans
+```
+
+The lifecycle is:
+
+```text
+start PostgreSQL/Redis/Qdrant -> Alembic upgrade -> import corpus bundle
+-> explicit index_documents --recreate -> verify travel_chunks -> start/verify app
+```
+
+The normal backend startup remains fast and non-destructive: it does not
+import corpus data, recreate Qdrant, or calculate embeddings.
+
+## 9. Operations
 
 ```bash
 cd /opt/vietnam-travel-advisor
@@ -197,7 +261,7 @@ Qdrant snapshots separately; the named volumes protect against container
 replacement but are not off-instance backups. Redis is cache/rate-limit state,
 not the system of record.
 
-## 9. Domain, HTTPS, and Google OAuth
+## 10. Domain, HTTPS, and Google OAuth
 
 Allocate an Elastic IP, point the real domain's DNS A record to it, and only
 then add TLS. Use Certbot or another certificate manager, mount the resulting
