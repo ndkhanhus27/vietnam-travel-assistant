@@ -65,6 +65,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.get("/health", include_in_schema=False)
+async def health() -> dict[str, str]:
+    """Cheap process liveness probe for containers and load balancers."""
+
+    return {"status": "ok"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,

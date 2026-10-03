@@ -1,4 +1,8 @@
 .env
+.env.production
+.deploy.env
+.deploy.env.previous
+.deploy.env.next
 .venv/
 __pycache__/
 *.pyc
