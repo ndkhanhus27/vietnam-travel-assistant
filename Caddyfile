@@ -1,0 +1,11 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$APP_DOMAIN} {
+	reverse_proxy nginx:80
+}
+
+http://127.0.0.1 {
+	reverse_proxy nginx:80
+}

@@ -1,15 +1,17 @@
 # Production deployment runbook
 
-This deployment runs one public Nginx container and four private services:
+This deployment runs one public Caddy container and five private services:
 
 ```text
-Internet -> nginx:80 -> /api -> backend:8000
-                              -> postgres:5432
-                              -> redis:6379
-                              -> qdrant:6333
+Internet -> caddy:80/443 -> nginx:80 -> /api -> backend:8000
+                                           -> postgres:5432
+                                           -> redis:6379
+                                           -> qdrant:6333
 ```
 
-Only Nginx publishes a host port. The backend has one Uvicorn worker because
+Only Caddy publishes host ports. It provisions and renews HTTPS certificates
+for `APP_DOMAIN`; Nginx and all data services remain private. The backend has
+one Uvicorn worker because
 each worker would allocate its own BGE-M3 and CrossEncoder models.
 
 ## 1. Prerequisites
@@ -86,6 +88,7 @@ permissions to `600`. Required application values include:
 - `JWT_SECRET_KEY`, `GOOGLE_CLIENT_ID`
 - `GEMINI_API_KEY`, `TAVILY_API_KEY`
 - `OPENWEATHER_API_KEY`, `GOONG_API_KEY`
+- `APP_DOMAIN`, `ACME_EMAIL`
 
 The Compose-internal URLs must use `postgres`, `redis`, and `qdrant`, not
 `localhost`. For same-origin production traffic, `CORS_ORIGINS` may be empty.
@@ -140,7 +143,7 @@ checkout.
 
 - TCP 22: only trusted developer/admin IPs or a controlled bastion
 - TCP 80: public
-- TCP 443: public after TLS is configured
+- TCP 443: public
 - Never expose 5432, 6379, 6333, 6334, or 8000 publicly
 
 ## 6. GitHub configuration
@@ -318,15 +321,14 @@ not the system of record.
 
 ## 10. Domain, HTTPS, and Google OAuth
 
-Allocate an Elastic IP, point the real domain's DNS A record to it, and only
-then add TLS. Use Certbot or another certificate manager, mount the resulting
-certificate read-only into Nginx, listen on 443, and redirect port 80 to HTTPS.
-Do not request a certificate for a placeholder hostname.
+Allocate an Elastic IP and point `APP_DOMAIN` to it before deployment. Caddy
+then obtains a public certificate automatically, redirects domain traffic from
+HTTP to HTTPS, and stores certificate state in the persistent `caddy_data`
+volume. Do not deploy with a placeholder hostname.
 
 After HTTPS works, add `https://<real-domain>` to the Google OAuth Web Client's
-authorized JavaScript origins and rebuild the frontend image. Set backend
-`GOOGLE_CLIENT_ID` to the same Web Client ID. Same-origin `/api` routing avoids
-wildcard production CORS.
+authorized JavaScript origins. Set backend `GOOGLE_CLIENT_ID` to the same Web
+Client ID. Same-origin `/api` routing avoids wildcard production CORS.
 
 Google does not allow a public raw IP as a JavaScript origin and permits plain
 HTTP only for localhost development. Therefore Google Sign-In is intentionally
