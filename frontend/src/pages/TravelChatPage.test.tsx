@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MessageResponse } from "../api/types";
-import { createOptimisticMessageId, MessageView } from "./TravelChatPage";
+import {
+  consumePendingConversationNavigation,
+  createOptimisticMessageId,
+  MessageView,
+} from "./TravelChatPage";
 
 const message: MessageResponse = {
   id: "assistant-1",
@@ -39,5 +43,15 @@ describe("createOptimisticMessageId", () => {
     vi.stubGlobal("crypto", {});
 
     expect(createOptimisticMessageId()).toMatch(/^optimistic-\d+-[a-z0-9]+$/);
+  });
+});
+
+describe("consumePendingConversationNavigation", () => {
+  it("preserves messages once when the first send navigates to its new conversation", () => {
+    const pending = { current: "conversation-1" };
+
+    expect(consumePendingConversationNavigation(pending, "conversation-1")).toBe(true);
+    expect(pending.current).toBeNull();
+    expect(consumePendingConversationNavigation(pending, "conversation-1")).toBe(false);
   });
 });

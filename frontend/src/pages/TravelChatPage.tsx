@@ -58,6 +58,15 @@ export function createOptimisticMessageId() {
   return `optimistic-${uniquePart}`;
 }
 
+export function consumePendingConversationNavigation(
+  pending: { current: string | null },
+  conversationId: string | undefined,
+) {
+  if (!conversationId || pending.current !== conversationId) return false;
+  pending.current = null;
+  return true;
+}
+
 export function TravelChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
@@ -83,6 +92,7 @@ export function TravelChatPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const viewRef = useRef<HTMLElement>(null);
   const stayAtBottom = useRef(true);
+  const pendingConversationNavigation = useRef<string | null>(null);
 
   const activeConversation = conversations.find((item) => item.id === conversationId);
   const visible = useMemo(() => conversations.filter((item) => !item.is_archived), [conversations]);
@@ -131,8 +141,12 @@ export function TravelChatPage() {
     setActiveMenu(null);
     setUserMenuOpen(false);
     setPageError("");
+    if (!conversationId) {
+      setMessages([]);
+      return;
+    }
+    if (consumePendingConversationNavigation(pendingConversationNavigation, conversationId)) return;
     setMessages([]);
-    if (!conversationId) return;
     void (async () => {
       if (!conversations.some((item) => item.id === conversationId)) {
         try {
@@ -183,6 +197,7 @@ export function TravelChatPage() {
         const created = await api.createConversation();
         id = created.id;
         setConversations((current) => [created, ...current]);
+        pendingConversationNavigation.current = id;
         navigate(`/c/${id}`);
       }
       const optimisticId = createOptimisticMessageId();
