@@ -50,6 +50,14 @@ function sortMessages(messages: MessageResponse[]) {
   return [...messages].sort((a, b) => a.sequence_no - b.sequence_no);
 }
 
+export function createOptimisticMessageId() {
+  const randomUUID = globalThis.crypto?.randomUUID;
+  const uniquePart = typeof randomUUID === "function"
+    ? randomUUID.call(globalThis.crypto)
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `optimistic-${uniquePart}`;
+}
+
 export function TravelChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
@@ -177,7 +185,7 @@ export function TravelChatPage() {
         setConversations((current) => [created, ...current]);
         navigate(`/c/${id}`);
       }
-      const optimisticId = `optimistic-${crypto.randomUUID()}`;
+      const optimisticId = createOptimisticMessageId();
       const optimistic: MessageResponse = {
         id: optimisticId, role: "user", content: value, sequence_no: Number.MAX_SAFE_INTEGER,
         intent: null, citations: null, warnings: null, created_at: new Date().toISOString(),

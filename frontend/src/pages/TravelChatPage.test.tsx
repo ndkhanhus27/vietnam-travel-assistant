@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MessageResponse } from "../api/types";
-import { MessageView } from "./TravelChatPage";
+import { createOptimisticMessageId, MessageView } from "./TravelChatPage";
 
 const message: MessageResponse = {
   id: "assistant-1",
@@ -29,5 +29,15 @@ describe("MessageView", () => {
     const html = renderToStaticMarkup(<MessageView message={message} degraded />);
     expect(html).toContain("Travel answer");
     expect(html).toContain("Một số thông tin chưa thể được kiểm chứng đầy đủ.");
+  });
+});
+
+describe("createOptimisticMessageId", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("works when randomUUID is unavailable on an insecure HTTP origin", () => {
+    vi.stubGlobal("crypto", {});
+
+    expect(createOptimisticMessageId()).toMatch(/^optimistic-\d+-[a-z0-9]+$/);
   });
 });
