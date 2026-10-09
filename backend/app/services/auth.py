@@ -71,6 +71,10 @@ class LocalPasswordAlreadyConfiguredError(AuthError):
     """Raised when create-password is used for an existing local account."""
 
 
+class GoogleAccountLinkRequiredError(AuthError):
+    """Raised when Google matches an existing account but is not linked."""
+
+
 class UserNotFoundError(AuthError):
     """Raised when a requested user does not exist."""
 
@@ -196,13 +200,16 @@ class AuthService:
                 user = await self.repository.get_user_by_email(
                     normalized_email
                 )
-                if user is None:
-                    user = await self.repository.create_user(
-                        email=normalized_email,
-                        display_name=identity.display_name,
-                        avatar_url=identity.avatar_url,
-                        is_verified=True,
+                if user is not None:
+                    raise GoogleAccountLinkRequiredError(
+                        "Google account must be linked by the signed-in user"
                     )
+                user = await self.repository.create_user(
+                    email=normalized_email,
+                    display_name=identity.display_name,
+                    avatar_url=identity.avatar_url,
+                    is_verified=True,
+                )
                 await self.repository.create_google_account(
                     user_id=user.id,
                     provider_user_id=identity.subject,

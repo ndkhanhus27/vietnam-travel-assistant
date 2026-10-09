@@ -34,6 +34,10 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
         : "Bạn thao tác quá nhanh. Vui lòng thử lại sau.");
       return;
     }
+    if (cause.status === 409) {
+      setError(cause.message);
+      return;
+    }
     if (cause.status === 0 || cause.status >= 500) {
       setError("Không thể kết nối để đăng nhập bằng Google. Vui lòng thử lại.");
       return;

@@ -10,6 +10,7 @@ from app.security.google import (
 from app.services.auth import (
     EmailAlreadyRegisteredError,
     ExpiredRefreshTokenError,
+    GoogleAccountLinkRequiredError,
     InactiveUserError,
     InvalidCredentialsError,
     InvalidEmailError,
@@ -36,6 +37,10 @@ def register_auth_exception_handlers(app: FastAPI) -> None:
     app.add_exception_handler(
         LocalPasswordAlreadyConfiguredError,
         _local_password_already_configured,
+    )
+    app.add_exception_handler(
+        GoogleAccountLinkRequiredError,
+        _google_account_link_required,
     )
     app.add_exception_handler(InvalidRefreshTokenError, _invalid_refresh)
     app.add_exception_handler(ExpiredRefreshTokenError, _invalid_refresh)
@@ -104,6 +109,16 @@ async def _local_password_already_configured(
     return _response(
         status.HTTP_409_CONFLICT,
         "Tài khoản đã có mật khẩu đăng nhập",
+    )
+
+
+async def _google_account_link_required(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    return _response(
+        status.HTTP_409_CONFLICT,
+        "Email này đã được đăng ký. Hãy đăng nhập bằng mật khẩu trước.",
     )
 
 

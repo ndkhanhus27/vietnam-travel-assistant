@@ -195,7 +195,7 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(active_count, 1)
 
-    async def test_google_links_existing_local_user(self) -> None:
+    async def test_google_rejects_automatic_link_to_local_user(self) -> None:
         email = self._email("linked")
         password = "SecurePassword123!"
         local = await self._register(email, password)
@@ -213,8 +213,11 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
             json={"email": email, "password": password},
         )
 
-        self.assertEqual(google.status_code, 200)
-        self.assertEqual(google.json()["user"]["id"], local.json()["user"]["id"])
+        self.assertEqual(google.status_code, 409)
+        self.assertEqual(
+            google.json()["detail"],
+            "Email này đã được đăng ký. Hãy đăng nhập bằng mật khẩu trước.",
+        )
         self.assertEqual(local_login.status_code, 200)
         async with AsyncSessionFactory() as session:
             users = await session.scalar(
@@ -229,7 +232,7 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
                 )
             ).scalars().all()
         self.assertEqual(users, 1)
-        self.assertEqual(set(accounts), {"local", "google"})
+        self.assertEqual(set(accounts), {"local"})
 
     async def test_google_first_user_rejects_public_password_attachment(self) -> None:
         email = self._email("google-first")

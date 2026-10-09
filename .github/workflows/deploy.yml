@@ -21,6 +21,7 @@ jobs:
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main')
     runs-on: ubuntu-latest
+    environment: production
     permissions:
       contents: read
       packages: write
@@ -66,6 +67,20 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      - name: Validate frontend production configuration
+        shell: bash
+        env:
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+        run: |
+          if [[ -z "$GOOGLE_CLIENT_ID" ]]; then
+            echo "Required production variable GOOGLE_CLIENT_ID is missing." >&2
+            exit 1
+          fi
+          if [[ ! "$GOOGLE_CLIENT_ID" =~ ^[0-9]+-[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$ ]]; then
+            echo "Production variable GOOGLE_CLIENT_ID has an invalid format." >&2
+            exit 1
+          fi
 
       - name: Build and push backend image
         uses: docker/build-push-action@v6

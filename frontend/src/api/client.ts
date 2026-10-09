@@ -156,13 +156,23 @@ export async function streamConversation(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const parser = new SseParser();
+  let terminalEventReceived = false;
+  const emit = (event: StreamEvent) => {
+    if (event.event === "completed" || event.event === "error") {
+      terminalEventReceived = true;
+    }
+    onEvent(event);
+  };
   while (true) {
     const { value, done } = await reader.read();
     if (done) break;
-    for (const event of parser.feed(decoder.decode(value, { stream: true }))) onEvent(event);
+    for (const event of parser.feed(decoder.decode(value, { stream: true }))) emit(event);
   }
-  for (const event of parser.feed(decoder.decode())) onEvent(event);
-  for (const event of parser.finish()) onEvent(event);
+  for (const event of parser.feed(decoder.decode())) emit(event);
+  for (const event of parser.finish()) emit(event);
+  if (!terminalEventReceived) {
+    throw new ApiError(0, "Kết nối bị gián đoạn trước khi trợ lý trả về kết quả.");
+  }
 }
 
 export const api = {

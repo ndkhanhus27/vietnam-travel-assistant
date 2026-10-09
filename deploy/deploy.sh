@@ -23,16 +23,43 @@ if [[ ! -f "$APP_ENV" ]]; then
     exit 1
 fi
 
-for key in \
-    POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD \
-    DATABASE_URL REDIS_URL QDRANT_URL JWT_SECRET_KEY \
-    GOOGLE_CLIENT_ID GEMINI_API_KEY TAVILY_API_KEY \
-    OPENWEATHER_API_KEY GOONG_API_KEY; do
+required_settings=(
+    POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
+    DATABASE_URL REDIS_URL QDRANT_URL QDRANT_COLLECTION JWT_SECRET_KEY
+    GOOGLE_CLIENT_ID GEMINI_API_KEY GEMINI_MODEL TAVILY_API_KEY
+    OPENWEATHER_API_KEY GOONG_API_KEY
+)
+
+for key in "${required_settings[@]}"; do
+    occurrences="$(grep -Ec "^${key}=" "$APP_ENV" || true)"
+    if [[ "$occurrences" -ne 1 ]]; then
+        echo "Required setting ${key} must appear exactly once in .env.production." >&2
+        exit 1
+    fi
     if ! grep -Eq "^${key}=.+" "$APP_ENV"; then
         echo "Required setting ${key} is missing from .env.production." >&2
         exit 1
     fi
 done
+
+setting_value() {
+    local key="$1"
+    grep -E "^${key}=" "$APP_ENV" | cut -d= -f2-
+}
+
+if [[ "$(setting_value DATABASE_URL)" != *"@postgres:5432/"* ]]; then
+    echo "DATABASE_URL must use the Compose service postgres:5432." >&2
+    exit 1
+fi
+if [[ "$(setting_value REDIS_URL)" != redis://redis:* ]]; then
+    echo "REDIS_URL must use the Compose service redis." >&2
+    exit 1
+fi
+if [[ "$(setting_value QDRANT_URL)" != http://qdrant:* && \
+      "$(setting_value QDRANT_URL)" != https://qdrant:* ]]; then
+    echo "QDRANT_URL must use the Compose service qdrant." >&2
+    exit 1
+fi
 
 if grep -Eq '=replace-with-' "$APP_ENV"; then
     echo ".env.production still contains replace-with placeholders." >&2

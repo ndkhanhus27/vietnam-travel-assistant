@@ -62,7 +62,10 @@ async def login(
 @router.post(
     "/google",
     response_model=AuthResponse,
-    responses={429: {"description": "Rate limit exceeded"}},
+    responses={
+        409: {"description": "Email belongs to an unlinked account"},
+        429: {"description": "Rate limit exceeded"},
+    },
 )
 async def google_login(
     payload: GoogleLoginRequest,

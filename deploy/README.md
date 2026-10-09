@@ -94,9 +94,9 @@ URL-encode reserved characters in `POSTGRES_PASSWORD` when placing that value
 inside `DATABASE_URL`.
 
 `GOOGLE_CLIENT_ID` is public configuration, not a client secret. Set the same
-value as the GitHub repository variable `GOOGLE_CLIENT_ID`; Vite embeds that
-public ID in the frontend image at build time. Never put a Google client
-secret in frontend configuration.
+value as the GitHub `production` environment variable `GOOGLE_CLIENT_ID`;
+Vite embeds that public ID in the frontend image at build time. Never put a
+Google client secret in frontend configuration.
 
 ## 4. EC2 initial setup
 
@@ -149,8 +149,12 @@ Create the GitHub Environment `production`, protect it as desired, and add:
 
 - Environment secrets: `EC2_HOST`, `EC2_USER`, `EC2_SSH_KEY`,
   `EC2_KNOWN_HOSTS`
-- Repository variables: `GOOGLE_CLIENT_ID` and
-  `PRODUCTION_DEPLOY_ENABLED`
+- Environment variable: `GOOGLE_CLIENT_ID`
+- Repository variable: `PRODUCTION_DEPLOY_ENABLED`
+
+The frontend build job is attached to the `production` environment and fails
+before building when `GOOGLE_CLIENT_ID` is empty or malformed. The validation
+prints only the variable name, never its value.
 
 Keep `PRODUCTION_DEPLOY_ENABLED` unset or set to `false` until the EC2 host,
 production secrets, and `/opt/vietnam-travel-advisor/.env.production` are
@@ -231,6 +235,52 @@ docker compose --env-file .deploy.env --env-file .env.production \
   -f docker-compose.prod.yml up -d --remove-orphans
 ```
 
+Transfer the corpus bundle separately over an authenticated administrative
+channel. For example, from the machine holding the encrypted backup:
+
+```bash
+scp corpus.corpus.json.gz \
+  <deploy-user>@<ec2-host>:/opt/vietnam-travel-advisor/corpus.corpus.json.gz
+```
+
+On EC2, restrict the file before importing it and remove it after a successful
+bootstrap:
+
+```bash
+cd /opt/vietnam-travel-advisor
+chmod 600 corpus.corpus.json.gz
+# Run the import and index commands above, then validate the counts below.
+rm -f corpus.corpus.json.gz
+```
+
+Validate the known production baseline without exposing connection strings:
+
+```bash
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml exec -T postgres sh -lc \
+  'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
+  "SELECT '\''documents='\'' || count(*) FROM documents
+   UNION ALL
+   SELECT '\''entity_candidates='\'' || count(*) FROM entity_candidates;"'
+
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml exec -T backend python -c \
+  'from app.core.config import settings; from qdrant_client import QdrantClient; c=QdrantClient(url=settings.qdrant_url); i=c.get_collection(settings.qdrant_collection); v=i.config.params.vectors; print(f"collection={settings.qdrant_collection} points={i.points_count} vector_size={v.size} distance={v.distance}")'
+```
+
+Expected output is `documents=84`, `entity_candidates=1843`, and
+`collection=travel_chunks points=287 vector_size=1024 distance=Cosine`. A
+mismatch is a failed bootstrap, not a reason to make normal deploys destructive.
+
+Warm both RAG models and exercise real retrieval from inside the EC2 backend:
+
+```bash
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml exec -T backend \
+  python -m pipeline.rag.ask "Ga Đà Lạt có gì đặc biệt?"
+docker stats --no-stream
+```
+
 The lifecycle is:
 
 ```text
@@ -250,7 +300,12 @@ docker compose --env-file .deploy.env --env-file .env.production \
 docker compose --env-file .deploy.env --env-file .env.production \
   -f docker-compose.prod.yml logs --tail=200 backend nginx
 docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml logs --since=15m backend
+docker compose --env-file .deploy.env --env-file .env.production \
+  -f docker-compose.prod.yml logs --since=15m nginx
+docker compose --env-file .deploy.env --env-file .env.production \
   -f docker-compose.prod.yml restart backend nginx
+docker stats --no-stream
 ```
 
 Docker logs rotate at 10 MB with three files. Application logs go to standard
@@ -273,9 +328,15 @@ authorized JavaScript origins and rebuild the frontend image. Set backend
 `GOOGLE_CLIENT_ID` to the same Web Client ID. Same-origin `/api` routing avoids
 wildcard production CORS.
 
+Google does not allow a public raw IP as a JavaScript origin and permits plain
+HTTP only for localhost development. Therefore Google Sign-In is intentionally
+unavailable at `http://<public-ip>`; do not try to bypass this with an HTTP
+redirect or disabled token verification.
+
 Official references:
 
 - Docker Engine on Ubuntu: https://docs.docker.com/engine/install/ubuntu/
 - Docker Compose plugin: https://docs.docker.com/compose/install/linux/
 - GitHub environments: https://docs.github.com/actions/deployment/targeting-different-environments
+- Google web client origins: https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid
 - Qdrant health and readiness: https://qdrant.tech/documentation/ops-monitoring/monitoring/

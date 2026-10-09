@@ -116,4 +116,45 @@ describe("API client", () => {
     await expect(api.streamMessage("c1", "hello", callback)).rejects.toMatchObject({ status: 429, retryAfter: 17 });
     expect(callback).not.toHaveBeenCalled();
   });
+
+  it("accepts the backend completed event as the terminal stream result", async () => {
+    const body = [
+      "event: connected",
+      'data: {"conversation_id":"c1"}',
+      "",
+      "event: completed",
+      'data: {"status":"ok"}',
+      "",
+      "",
+    ].join("\n");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    })));
+    const { api, sessionStore } = await import("./client");
+    sessionStore.set(auth);
+    const callback = vi.fn();
+
+    await api.streamMessage("c1", "hello", callback);
+
+    expect(callback.mock.calls.map(([event]) => event.event)).toEqual([
+      "connected",
+      "completed",
+    ]);
+  });
+
+  it("rejects a stream that closes before completed or error", async () => {
+    const body = 'event: connected\ndata: {"conversation_id":"c1"}\n\n';
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    })));
+    const { api, sessionStore } = await import("./client");
+    sessionStore.set(auth);
+
+    await expect(api.streamMessage("c1", "hello", vi.fn())).rejects.toMatchObject({
+      status: 0,
+      message: "Kết nối bị gián đoạn trước khi trợ lý trả về kết quả.",
+    });
+  });
 });
