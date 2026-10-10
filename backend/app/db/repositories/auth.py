@@ -15,12 +15,15 @@ class AuthRepository:
     def __init__(self, session: AsyncSession) -> None:
         self.session = session
 
-    async def get_user_by_id(self, user_id: uuid.UUID) -> User | None:
-        return await self.session.get(User, user_id)
+    async def get_user_by_id(self, user_id: uuid.UUID, *, for_update: bool = False) -> User | None:
+        return await self.session.get(User, user_id, with_for_update=for_update)
 
-    async def get_user_by_email(self, email: str) -> User | None:
+    async def get_user_by_email(self, email: str, *, for_update: bool = False) -> User | None:
+        statement = select(User).where(User.email == email)
+        if for_update:
+            statement = statement.with_for_update()
         result = await self.session.execute(
-            select(User).where(User.email == email)
+            statement
         )
         return result.scalar_one_or_none()
 

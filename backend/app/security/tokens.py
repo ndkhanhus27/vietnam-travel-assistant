@@ -32,6 +32,7 @@ class AccessTokenClaims:
     iat: datetime
     exp: datetime
     jti: str
+    auth_version: int = 0
 
     @property
     def user_id(self) -> uuid.UUID:
@@ -42,6 +43,7 @@ def create_access_token(
     user_id: uuid.UUID,
     *,
     now: datetime | None = None,
+    auth_version: int = 0,
 ) -> str:
     issued_at = _as_utc(now or datetime.now(timezone.utc))
     expires_at = issued_at + timedelta(
@@ -53,6 +55,7 @@ def create_access_token(
         "iat": issued_at,
         "exp": expires_at,
         "jti": uuid.uuid4().hex,
+        "auth_version": auth_version,
     }
     return jwt.encode(
         payload,
@@ -116,6 +119,7 @@ def _parse_access_claims(payload: dict[str, Any]) -> AccessTokenClaims:
         iat=_timestamp_to_datetime(payload.get("iat")),
         exp=_timestamp_to_datetime(payload.get("exp")),
         jti=jti,
+        auth_version=int(payload.get("auth_version", 0)),
     )
 
 

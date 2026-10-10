@@ -3,6 +3,7 @@ import { useAuth } from "./auth/AuthProvider";
 import { AuthPage } from "./pages/AuthPage";
 import { TravelChatPage } from "./pages/TravelChatPage";
 import { AdminPage } from "./pages/AdminPage";
+import { PasswordRecoveryPage } from "./pages/PasswordRecoveryPage";
 
 function ProtectedRoute() {
   const { user, bootstrapping } = useAuth();
@@ -21,9 +22,11 @@ function PublicOnlyRoute() {
 export default function App() {
   return (
     <Routes>
+      <Route path="/forgot-password" element={<PasswordRecoveryPage key="forgot" />} />
+      <Route path="/reset-password" element={<PasswordRecoveryPage key="reset" reset />} />
       <Route element={<PublicOnlyRoute />}>
-        <Route path="/login" element={<AuthPage mode="login" />} />
-        <Route path="/register" element={<AuthPage mode="register" />} />
+        <Route path="/login" element={<AuthPage key="login" mode="login" />} />
+        <Route path="/register" element={<AuthPage key="register" mode="register" />} />
       </Route>
       <Route element={<ProtectedRoute />}>
         <Route path="/" element={<TravelChatPage />} />

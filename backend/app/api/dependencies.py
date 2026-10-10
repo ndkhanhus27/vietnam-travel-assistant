@@ -17,6 +17,7 @@ from app.infra.redis import RedisRateLimiter
 from app.security.google import GoogleAuthVerifier, GoogleIdentityVerifier
 from app.security.tokens import TokenError, decode_access_token
 from app.services.auth import AuthService, InactiveUserError, UserNotFoundError
+from app.services.mail import RecoveryMailer, SmtpRecoveryMailer
 from app.services.chat import ChatService, WorkflowRunner
 
 
@@ -33,14 +34,19 @@ def get_google_verifier() -> GoogleIdentityVerifier:
     return GoogleAuthVerifier()
 
 
+def get_recovery_mailer() -> RecoveryMailer:
+    return SmtpRecoveryMailer()
+
+
 def get_auth_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     google_verifier: Annotated[
         GoogleIdentityVerifier,
         Depends(get_google_verifier),
     ],
+    mailer: Annotated[RecoveryMailer, Depends(get_recovery_mailer)],
 ) -> AuthService:
-    return AuthService(session, google_verifier=google_verifier)
+    return AuthService(session, google_verifier=google_verifier, mailer=mailer)
 
 
 def get_travel_workflow(request: Request) -> WorkflowRunner:
@@ -105,7 +111,10 @@ async def get_current_user(
 
     try:
         claims = decode_access_token(credentials.credentials)
-        return await auth_service.get_user(claims.user_id)
+        user = await auth_service.get_user(claims.user_id)
+        if user.auth_version != claims.auth_version:
+            raise _unauthorized()
+        return user
     except InactiveUserError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

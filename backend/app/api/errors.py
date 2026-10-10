@@ -17,6 +17,8 @@ from app.services.auth import (
     InvalidRefreshTokenError,
     LocalPasswordAlreadyConfiguredError,
     PasswordPolicyError,
+    InvalidPasswordResetError,
+    UnsupportedEmailDomainError,
 )
 from app.services.chat import (
     ChatWorkflowError,
@@ -26,6 +28,8 @@ from app.services.chat import (
 
 
 def register_auth_exception_handlers(app: FastAPI) -> None:
+    app.add_exception_handler(UnsupportedEmailDomainError, _unsupported_email_domain)
+    app.add_exception_handler(InvalidPasswordResetError, _invalid_password_reset)
     app.add_exception_handler(
         EmailAlreadyRegisteredError,
         _email_already_registered,
@@ -118,7 +122,7 @@ async def _google_account_link_required(
 ) -> JSONResponse:
     return _response(
         status.HTTP_409_CONFLICT,
-        "Email này đã được đăng ký. Hãy đăng nhập bằng mật khẩu trước.",
+        "Email này đã có tài khoản. Xác nhận mật khẩu để liên kết Google, hoặc chọn Quên mật khẩu.",
     )
 
 
@@ -128,6 +132,14 @@ async def _invalid_refresh(request: Request, exc: Exception) -> JSONResponse:
         "Phiên đăng nhập không hợp lệ hoặc đã hết hạn",
         authenticate=True,
     )
+
+
+async def _invalid_password_reset(request: Request, exc: Exception) -> JSONResponse:
+    return _response(400, "Liên kết đặt lại mật khẩu không hợp lệ, đã hết hạn hoặc đã dùng. Hãy yêu cầu liên kết mới.")
+
+
+async def _unsupported_email_domain(request: Request, exc: Exception) -> JSONResponse:
+    return _response(422, "Chỉ hỗ trợ địa chỉ @gmail.com. Vui lòng sử dụng tài khoản Gmail.")
 
 
 async def _invalid_google_credential(

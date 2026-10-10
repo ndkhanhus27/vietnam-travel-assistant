@@ -226,11 +226,11 @@ a { color: inherit; }
 .send-button:disabled { background: #c6c8d0; cursor: not-allowed; }
 .character-count { width: min(var(--composer-width), 100%); margin: 5px auto 0; text-align: right; color: var(--text-muted); font-size: 10px; }
 
-.auth-page { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, 1fr); background: var(--bg-secondary); }
-.auth-page::before { content: "TRAVEL A.I+\A\A Khám phá và lên kế hoạch du lịch Việt Nam trong một nơi duy nhất.\A\A Tư vấn điểm đến, lịch trình, thời tiết, đường đi và chi phí dựa trên nguồn thông tin rõ ràng."; white-space: pre-wrap; display: flex; flex-direction: column; padding: clamp(36px, 5vw, 76px); background: var(--accent); color: #fff; font-size: clamp(16px, 1.8vw, 30px); line-height: 1.55; font-weight: 500; }
-.auth-panel { width: min(440px, calc(100% - 48px)); align-self: center; justify-self: center; padding: 32px 0; }
-.auth-brand { color: var(--accent); font-size: 13px; font-weight: 700; }
-.auth-panel h1 { margin: 18px 0 8px; font-size: 29px; line-height: 1.25; font-weight: 600; }
+.auth-page { min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 32px 20px; background: #fff; color: #202123; }
+.auth-page::before { display: none; content: none; }
+.auth-panel { width: min(360px, 100%); padding: 32px 0; }
+.auth-brand { color: #202123; font-size: 16px; font-weight: 600; text-align: center; }
+.auth-panel h1 { margin: 30px 0 28px; font-size: 28px; line-height: 1.25; font-weight: 600; text-align: center; }
 .auth-subtitle { margin: 0 0 28px; color: var(--text-secondary); font-size: 13px; line-height: 1.6; }
 .auth-form { display: grid; gap: 17px; }
 .auth-form label, .dialog-form label, .profile-form label, .local-password-form label { display: grid; gap: 8px; color: var(--text-secondary); font-size: 12px; }
@@ -255,6 +255,22 @@ a { color: inherit; }
 .google-login-slot.is-loading { opacity: 0.65; pointer-events: none; }
 .auth-switch { margin: 22px 0 0; text-align: center; color: var(--text-secondary); font-size: 12px; }
 .auth-switch a { color: var(--accent); font-weight: 600; text-decoration: none; }
+.auth-panel .auth-form label { color: #454545; font-size: 14px; }
+.auth-panel .auth-form input { background: #fff; color: #202123; border-color: #c9c9c9; height: 52px; }
+.auth-panel .auth-form input:focus { border-color: #202123; background: #fff; }
+.auth-panel .auth-submit { background: #202123; border-color: #202123; min-height: 50px; font-size: 15px; }
+.auth-panel .auth-submit:hover { background: #383838; }
+.auth-panel .auth-submit:disabled { background: #b7b7b7; border-color: #b7b7b7; }
+.auth-panel .or-divider span { background: #fff; }
+.auth-panel .auth-subtitle, .auth-panel .auth-switch { color: #616161; }
+.auth-panel .google-button { background: #fff; color: #454545; border-color: #c9c9c9; }
+.auth-panel .auth-form .auth-password-toggle { display: flex; align-items: center; gap: 8px; }
+.auth-panel .auth-password-toggle input { width: 16px; height: 16px; accent-color: #202123; }
+.auth-email-summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 1px solid #c9c9c9; border-radius: 6px; padding: 14px; margin-bottom: 24px; }
+.auth-email-summary span { overflow-wrap: anywhere; min-width: 0; }
+.auth-email-summary button, .auth-back { background: none; border: 0; color: #454545; cursor: pointer; padding: 4px; text-decoration: underline; }
+.auth-back { display: block; margin: 24px auto 0; }
+.auth-forgot { color: #454545; font-size: 14px; }
 
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; padding: 20px; background: var(--overlay); }
 .modal { width: min(440px, 100%); max-height: min(720px, calc(100dvh - 40px)); overflow: auto; padding: 22px; background: var(--bg-secondary); border: 1px solid var(--border-default); border-radius: var(--radius-md); box-shadow: 0 22px 60px rgba(20, 21, 26, 0.18); }
@@ -386,7 +402,7 @@ a { color: inherit; }
   .composer { padding-left: 12px; }
   .message-meta { font-size: 11px; }
   .markdown-body, .user-message p { font-size: 14px; }
-  .auth-page { grid-template-columns: minmax(0, 1fr); place-items: center; padding: 22px; background: var(--bg-secondary); }
+  .auth-page { padding: 22px; background: #fff; }
   .auth-page::before { display: none; }
   .auth-panel { width: min(440px, 100%); padding: 20px 0; }
   .auth-panel h1 { font-size: 27px; }

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from typing import Annotated
+import logging
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Response, status
+from app.db.session import AsyncSessionFactory
+from app.services.mail import RecoveryMailer
 
 from app.api.dependencies import (
     enforce_auth_rate_limit,
@@ -17,6 +20,8 @@ from app.api.schemas import (
     LogoutRequest,
     RefreshRequest,
     RegisterRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
 )
 from app.db.models import User
 from app.services.auth import AuthService
@@ -73,8 +78,41 @@ async def google_login(
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> AuthResponse:
     return AuthResponse.from_result(
-        await service.login_with_google(payload.credential)
+        await service.login_with_google(payload.credential, payload.password)
     )
+
+
+@router.post("/forgot-password", dependencies=[Depends(enforce_auth_rate_limit)])
+async def forgot_password(
+    payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> dict[str, str]:
+    background_tasks.add_task(_send_recovery, str(payload.email), service.mailer)
+    return {"message": (
+        "Nếu email có tài khoản mật khẩu đang hoạt động, bạn sẽ nhận được liên kết đặt lại mật khẩu. "
+        "Nếu đã đăng ký bằng Google, hãy tiếp tục đăng nhập bằng Google."
+    )}
+
+
+async def _send_recovery(email: str, mailer: RecoveryMailer) -> None:
+    try:
+        async with AsyncSessionFactory() as session:
+            await AuthService(session, mailer=mailer).request_password_reset(email)
+    except Exception:
+        logging.getLogger(__name__).error("Password recovery background task failed")
+
+
+@router.post(
+    "/reset-password", status_code=204, response_class=Response,
+    dependencies=[Depends(enforce_auth_rate_limit)],
+)
+async def reset_password(
+    payload: ResetPasswordRequest,
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> Response:
+    await service.reset_password(payload.token, payload.password)
+    return Response(status_code=204)
 
 
 @router.post(

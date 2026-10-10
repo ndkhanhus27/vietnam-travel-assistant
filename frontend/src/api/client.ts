@@ -178,7 +178,16 @@ export async function streamConversation(
 export const api = {
   register: (payload: { display_name?: string | null; email: string; password: string }) => authenticate("/auth/register", payload),
   login: (payload: { email: string; password: string }) => authenticate("/auth/login", payload),
-  googleLogin: (credential: string) => authenticate("/auth/google", { credential }),
+  googleLogin: (credential: string, password?: string) => authenticate("/auth/google", { credential, ...(password === undefined ? {} : { password }) }),
+  forgotPassword: async (email: string): Promise<{ message: string }> => {
+    const response = await fetchRequest("/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
+    if (!response.ok) throw await errorFromResponse(response);
+    return response.json();
+  },
+  resetPassword: async (token: string, password: string, confirmPassword: string): Promise<void> => {
+    const response = await fetchRequest("/auth/reset-password", { method: "POST", body: JSON.stringify({ token, password, confirm_password: confirmPassword }) });
+    if (!response.ok) throw await errorFromResponse(response);
+  },
   refresh: refreshSession,
   me: () => request<UserResponse>("/users/me"),
   updateMe: (displayName: string | null) => request<UserResponse>("/users/me", {

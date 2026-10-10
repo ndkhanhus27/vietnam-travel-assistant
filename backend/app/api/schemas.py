@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 
 from app.services.auth import AuthResult
 from app.services.chat import ChatResult, MAX_CHAT_MESSAGE_LENGTH
@@ -23,6 +23,30 @@ class LoginRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     credential: str
+    password: str | None = Field(default=None, max_length=128)
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr = Field(max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def require_gmail(cls, value: str) -> str:
+        if value.lower().rsplit("@", 1)[-1] != "gmail.com":
+            raise ValueError("Chỉ hỗ trợ địa chỉ @gmail.com")
+        return value
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=256)
+    password: str = Field(min_length=8, max_length=128)
+    confirm_password: str
+
+    @model_validator(mode="after")
+    def passwords_must_match(self):
+        if self.password != self.confirm_password:
+            raise ValueError("Passwords do not match")
+        return self
 
 
 class CreateLocalPasswordRequest(BaseModel):

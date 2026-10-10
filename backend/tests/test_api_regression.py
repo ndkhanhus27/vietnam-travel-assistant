@@ -10,6 +10,14 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, func, select
 
 from app.api.dependencies import get_google_verifier, get_travel_workflow
+from app.api.dependencies import get_recovery_mailer, get_rate_limiter
+from app.infra.redis import RateLimitResult
+from app.core.config import settings
+from unittest.mock import patch
+from app.db.models import PasswordResetToken
+from app.services.mail import MailDeliveryError
+from datetime import datetime, timedelta, timezone
+from urllib.parse import urlsplit, parse_qs
 from app.db.models import AuthAccount, RefreshToken, User
 from app.db.repositories.auth import AuthRepository
 from app.db.repositories.conversations import ConversationRepository
@@ -40,6 +48,20 @@ class StubGoogleVerifier:
         if self.identity is None:
             raise AssertionError("Google identity was not configured")
         return self.identity
+
+
+class CapturingMailer:
+    def __init__(self):
+        self.messages = []
+        self.fail = False
+
+    async def send_reset(self, recipient, link):
+        if self.fail:
+            raise MailDeliveryError("SMTP unavailable")
+        self.messages.append((recipient, link))
+
+    def token(self):
+        return parse_qs(urlsplit(self.messages[-1][1]).fragment)["token"][0]
 
 
 class DeterministicWorkflow:
@@ -105,6 +127,8 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.email_prefix = f"regression-{self.test_id}"
         self.google_verifier = StubGoogleVerifier()
         self.workflow = DeterministicWorkflow()
+        self.mailer = CapturingMailer()
+        app.dependency_overrides[get_recovery_mailer] = lambda: self.mailer
         app.dependency_overrides[get_google_verifier] = (
             lambda: self.google_verifier
         )
@@ -216,7 +240,7 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(google.status_code, 409)
         self.assertEqual(
             google.json()["detail"],
-            "Email này đã được đăng ký. Hãy đăng nhập bằng mật khẩu trước.",
+            "Email này đã có tài khoản. Xác nhận mật khẩu để liên kết Google, hoặc chọn Quên mật khẩu.",
         )
         self.assertEqual(local_login.status_code, 200)
         async with AsyncSessionFactory() as session:
@@ -333,6 +357,134 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("node", payload)
         self.assertNotIn("chain_of_thought", payload)
 
+    async def test_google_link_requires_correct_password_and_preserves_user(self):
+        email = self._email("link-proof")
+        local = await self._register(email, "SecurePassword123!")
+        self.google_verifier.identity = self._google_identity(email, "link-proof")
+        bad = await self.client.post("/api/v1/auth/google", json={"credential": "valid", "password": "WrongPassword123!"})
+        self.assertEqual(bad.status_code, 401)
+        linked = await self.client.post("/api/v1/auth/google", json={"credential": "valid", "password": "SecurePassword123!"})
+        self.assertEqual(linked.status_code, 200)
+        self.assertEqual(linked.json()["user"]["id"], local.json()["user"]["id"])
+        again = await self.client.post("/api/v1/auth/google", json={"credential": "valid"})
+        self.assertEqual(again.status_code, 200)
+        self.assertEqual(again.json()["user"]["id"], linked.json()["user"]["id"])
+
+    async def test_google_rejects_unverified_email(self):
+        self.google_verifier.identity = GoogleIdentity(subject=self.test_id, email=self._email("unverified"), email_verified=False)
+        result = await self.client.post("/api/v1/auth/google", json={"credential": "invalid"})
+        self.assertEqual(result.status_code, 401)
+
+    async def test_non_gmail_is_rejected_on_all_public_auth_paths(self):
+        for email in ["user@outlook.com", "user@hotmail.com", "user@gmail.com.attacker.com", "user@yahoo.com"]:
+            with self.subTest(email=email):
+                registered = await self._register(email, "Password123!")
+                self.assertEqual(registered.status_code, 422)
+                login = await self.client.post("/api/v1/auth/login", json={"email": email, "password": "Password123!"})
+                self.assertEqual(login.status_code, 422)
+                forgot = await self.client.post("/api/v1/auth/forgot-password", json={"email": email})
+                self.assertEqual(forgot.status_code, 422)
+                self.google_verifier.identity = self._google_identity(email, email)
+                google = await self.client.post("/api/v1/auth/google", json={"credential": "verified"})
+                self.assertEqual(google.status_code, 422)
+        self.assertEqual(self.mailer.messages, [])
+
+    async def test_recovery_changes_password_and_revokes_all_sessions(self):
+        email = self._email("recovery")
+        original = (await self._register(email, "OldPassword123!")).json()
+        requested = await self.client.post("/api/v1/auth/forgot-password", json={"email": email.upper()})
+        self.assertEqual(requested.status_code, 200)
+        token = self.mailer.token()
+        async with AsyncSessionFactory() as session:
+            stored = (await session.execute(select(PasswordResetToken).where(PasswordResetToken.user_id == uuid.UUID(original["user"]["id"])))) .scalar_one()
+            self.assertNotEqual(stored.token_hash, token)
+            self.assertNotIn(token, requested.text)
+        result = await self._reset(token)
+        self.assertEqual(result.status_code, 204)
+        self.assertEqual((await self._reset(token)).status_code, 400)
+        old_login = await self.client.post("/api/v1/auth/login", json={"email": email, "password": "OldPassword123!"})
+        self.assertEqual(old_login.status_code, 401)
+        self.assertEqual((await self.client.get("/api/v1/users/me", headers=self._headers(original["access_token"]))).status_code, 401)
+        refresh = await self.client.post("/api/v1/auth/refresh", json={"refresh_token": original["refresh_token"]})
+        self.assertEqual(refresh.status_code, 401)
+        new_login = await self.client.post("/api/v1/auth/login", json={"email": email, "password": "NewPassword123!"})
+        self.assertEqual(new_login.status_code, 200)
+        self.assertEqual((await self.client.get("/api/v1/users/me", headers=self._headers(new_login.json()["access_token"]))).status_code, 200)
+
+    async def test_recovery_generic_for_unknown_google_only_and_inactive_users(self):
+        unknown = await self.client.post("/api/v1/auth/forgot-password", json={"email": self._email("missing")})
+        self.google_verifier.identity = self._google_identity(self._email("google-only"), "only")
+        await self.client.post("/api/v1/auth/google", json={"credential": "valid"})
+        google = await self.client.post("/api/v1/auth/forgot-password", json={"email": self._email("google-only")})
+        registered = await self._register(self._email("inactive"), "Password123!")
+        async with AsyncSessionFactory.begin() as session:
+            user = await session.get(User, uuid.UUID(registered.json()["user"]["id"]))
+            user.is_active = False
+        inactive = await self.client.post("/api/v1/auth/forgot-password", json={"email": self._email("inactive")})
+        self.assertEqual(unknown.json(), google.json())
+        self.assertEqual(unknown.json(), inactive.json())
+        self.assertEqual(self.mailer.messages, [])
+
+    async def test_recovery_invalid_expired_and_mismatched_tokens(self):
+        await self._register(self._email("expired"), "Password123!")
+        await self.client.post("/api/v1/auth/forgot-password", json={"email": self._email("expired")})
+        token = self.mailer.token()
+        mismatch = await self.client.post("/api/v1/auth/reset-password", json={"token": token, "password": "Password123!", "confirm_password": "Different123!"})
+        self.assertEqual(mismatch.status_code, 422)
+        self.assertEqual((await self._reset("forged-token")).status_code, 400)
+        async with AsyncSessionFactory.begin() as session:
+            stored = (await session.execute(select(PasswordResetToken).where(PasswordResetToken.user_id.in_(select(User.id).where(User.email == self._email("expired")))))).scalar_one()
+            stored.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        self.assertEqual((await self._reset(token)).status_code, 400)
+
+    async def test_recovery_concurrent_consumption_only_succeeds_once(self):
+        await self._register(self._email("race"), "Password123!")
+        await self.client.post("/api/v1/auth/forgot-password", json={"email": self._email("race")})
+        results = await asyncio.gather(self._reset(self.mailer.token()), self._reset(self.mailer.token()))
+        self.assertEqual(sorted(result.status_code for result in results), [204, 400])
+
+    async def test_recovery_cooldown_and_delivery_failure(self):
+        email = self._email("cooldown")
+        await self._register(email, "Password123!")
+        self.mailer.fail = True
+        failed = await self.client.post("/api/v1/auth/forgot-password", json={"email": email})
+        self.assertEqual(failed.status_code, 200)
+        self.mailer.fail = False
+        first = await self.client.post("/api/v1/auth/forgot-password", json={"email": email})
+        second = await self.client.post("/api/v1/auth/forgot-password", json={"email": email})
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(len(self.mailer.messages), 1)
+
+    async def test_recovery_invalid_input_and_rate_limit_do_not_send_mail(self):
+        invalid = await self.client.post("/api/v1/auth/forgot-password", json={"email": "not-an-email"})
+        self.assertEqual(invalid.status_code, 422)
+        class DeniedLimiter:
+            async def check(self, **kwargs):
+                return RateLimitResult(allowed=False, remaining=0, retry_after=60)
+        app.dependency_overrides[get_rate_limiter] = lambda: DeniedLimiter()
+        with patch.object(settings, "rate_limit_enabled", True):
+            response = await self.client.post("/api/v1/auth/forgot-password", json={"email": self._email("limited")})
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.headers["retry-after"], "60")
+        self.assertEqual(self.mailer.messages, [])
+
+    async def test_recovery_consumption_invalidates_other_outstanding_links(self):
+        email = self._email("multiple-links")
+        await self._register(email, "Password123!")
+        await self.client.post("/api/v1/auth/forgot-password", json={"email": email})
+        first = self.mailer.token()
+        async with AsyncSessionFactory.begin() as session:
+            stored = (await session.execute(select(PasswordResetToken).where(PasswordResetToken.user_id.in_(select(User.id).where(User.email == email))))).scalar_one()
+            stored.created_at = datetime.now(timezone.utc) - timedelta(seconds=61)
+        await self.client.post("/api/v1/auth/forgot-password", json={"email": email})
+        second = self.mailer.token()
+        self.assertNotEqual(first, second)
+        self.assertEqual((await self._reset(second)).status_code, 204)
+        self.assertEqual((await self._reset(first)).status_code, 400)
+
+    async def _reset(self, token):
+        return await self.client.post("/api/v1/auth/reset-password", json={"token": token, "password": "NewPassword123!", "confirm_password": "NewPassword123!"})
+
     async def _register(self, email: str, password: str):
         return await self.client.post(
             "/api/v1/auth/register",
@@ -362,7 +514,7 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
             return conversation.id
 
     def _email(self, suffix: str) -> str:
-        return f"{self.email_prefix}-{suffix}@example.com"
+        return f"{self.email_prefix}-{suffix}@gmail.com"
 
     def _google_identity(self, email: str, suffix: str) -> GoogleIdentity:
         return GoogleIdentity(

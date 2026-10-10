@@ -16,6 +16,27 @@ const user = { id: "u1", email: "user@example.com", display_name: "User", avatar
 const auth = { access_token: "access-new", refresh_token: "refresh-new", token_type: "bearer" as const, expires_in: 900, user };
 
 describe("API client", () => {
+  it("sends recovery requests without attaching an existing session", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: "Check your inbox" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api, sessionStore } = await import("./client");
+    sessionStore.set(auth);
+    await api.forgotPassword("user@example.com");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("/auth/forgot-password");
+    expect(new Headers(init.headers).has("Authorization")).toBe(false);
+    expect(JSON.parse(init.body)).toEqual({ email: "user@example.com" });
+  });
+
+  it("sends a reset token in the JSON body and accepts 204", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { api } = await import("./client");
+    await api.resetPassword("secret-token", "NewPassword123!", "NewPassword123!");
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).not.toContain("secret-token");
+    expect(JSON.parse(init.body)).toMatchObject({ token: "secret-token", confirm_password: "NewPassword123!" });
+  });
   beforeEach(async () => {
     vi.resetModules();
     localStorage.clear();

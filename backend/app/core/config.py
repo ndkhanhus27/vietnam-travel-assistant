@@ -16,6 +16,14 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = Field(default=15, gt=0)
     refresh_token_expire_days: int = Field(default=30, gt=0)
     google_client_id: str = ""
+    public_app_url: str = "http://localhost:5173"
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, gt=0)
+    smtp_username: str = ""
+    smtp_password: SecretStr = SecretStr("")
+    smtp_from_email: str = ""
+    smtp_security: Literal["starttls", "ssl"] = "starttls"
+    password_reset_expire_minutes: int = Field(default=20, gt=0)
     cors_origins: str = "http://localhost:5173"
     admin_bootstrap_enabled: bool = False
     admin_email: str = ""
@@ -130,6 +138,20 @@ class Settings(BaseSettings):
         if "*" in origins:
             raise ValueError("CORS_ORIGINS must not contain '*'")
         return value
+
+    @field_validator("public_app_url")
+    @classmethod
+    def validate_public_app_url(cls, value: str) -> str:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(value)
+        if (parsed.scheme not in {"http", "https"} or not parsed.hostname
+                or parsed.username or parsed.password or parsed.query or parsed.fragment
+                or parsed.path not in {"", "/"}):
+            raise ValueError("PUBLIC_APP_URL must be an origin without path or credentials")
+        if parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError("PUBLIC_APP_URL must use HTTPS outside localhost")
+        return value.rstrip("/")
 
     @property
     def cors_origin_list(self) -> list[str]:
