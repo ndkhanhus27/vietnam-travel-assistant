@@ -2,6 +2,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { api, ApiError, sessionStore } from "../api/client";
 import { isGmailAddress } from "../auth/emailPolicy";
+import { AuthLayout } from "../components/AuthLayout";
+import { PasswordField } from "../components/PasswordField";
 
 export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
   const location = useLocation();
@@ -50,13 +52,14 @@ export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
     }
   }
 
-  return <main className="auth-page"><section className="auth-panel">
-    <div className="auth-brand">Vietnam Travel Advisor</div>
-    <h1>{reset ? "Đặt lại mật khẩu" : "Quên mật khẩu"}</h1>
+  return <AuthLayout>
+    <div className="auth-brand">Trợ lý du lịch Việt Nam</div>
+    <h1 id="auth-title">{reset ? "Đặt lại mật khẩu" : "Quên mật khẩu?"}</h1>
+    <p className="auth-subtitle">{reset ? "Chọn mật khẩu mới cho tài khoản của bạn." : "Nhập Gmail của bạn để nhận liên kết khôi phục."}</p>
     {reset && !token ? <div className="form-error" role="alert">Liên kết thiếu mã xác nhận. Hãy yêu cầu liên kết mới.</div> : !done && <form className="auth-form" onSubmit={submit}>
       {reset ? <>
-        <label><span>Mật khẩu mới</span><input name="password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required disabled={loading} /></label>
-        <label><span>Xác nhận mật khẩu</span><input name="confirm_password" type="password" autoComplete="new-password" minLength={8} maxLength={128} required disabled={loading} /></label>
+        <PasswordField label="Mật khẩu mới" autoComplete="new-password" disabled={loading} />
+        <PasswordField label="Xác nhận mật khẩu" name="confirm_password" autoComplete="new-password" disabled={loading} />
       </> : <label><span>Địa chỉ Gmail</span><input name="email" type="email" autoComplete="email" defaultValue={initialEmail} required disabled={loading} /></label>}
       <button className="primary-button auth-submit" disabled={loading}>{loading ? "Đang xử lý..." : reset ? "Lưu mật khẩu mới" : "Gửi liên kết xác nhận"}</button>
     </form>}
@@ -64,5 +67,5 @@ export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
     {message && <p role="status">{message}</p>}
     <p className="auth-switch"><Link to="/login">Quay lại đăng nhập</Link></p>
     {reset && <p><Link to="/forgot-password">Yêu cầu liên kết mới</Link></p>}
-  </section></main>;
+  </AuthLayout>;
 }

@@ -8,6 +8,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { appearanceOptions, useAppearance } from "../appearance/AppearanceProvider";
 import { MarkdownLite } from "../components/MarkdownLite";
 import { Modal } from "../components/Modal";
+import { AccountSecurity } from "../components/AccountSecurity";
 import {
   ArchiveIcon, ChatIcon, CheckIcon, EditIcon, ExternalIcon, LogoutIcon, MenuIcon,
   MoreIcon, PlusIcon, SendIcon, SettingsIcon, TrashIcon, UsersIcon, WarningIcon,
@@ -402,9 +403,6 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
   const [name, setName] = useState(user.display_name || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const [passwordSaving, setPasswordSaving] = useState(false);
-  const [passwordError, setPasswordError] = useState("");
-  const [passwordSuccess, setPasswordSuccess] = useState("");
   const { appearance, setAppearance } = useAppearance();
 
   async function saveProfile(event: FormEvent) {
@@ -419,37 +417,6 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
       setError(cause instanceof ApiError && cause.status !== 422 ? cause.message : "Không thể cập nhật thông tin tài khoản.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function createPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (passwordSaving) return;
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    const password = String(form.get("password") || "");
-    const confirmation = String(form.get("confirm_password") || "");
-    setPasswordError("");
-    setPasswordSuccess("");
-    if (password !== confirmation) {
-      setPasswordError("Mật khẩu xác nhận không khớp.");
-      return;
-    }
-    setPasswordSaving(true);
-    try {
-      await api.createLocalPassword(password, confirmation);
-      formElement.reset();
-      setPasswordSuccess("Đã tạo mật khẩu. Bạn có thể dùng email và mật khẩu này để đăng nhập.");
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 409) {
-        setPasswordError("Tài khoản đã có mật khẩu đăng nhập. Mật khẩu hiện tại không bị thay đổi.");
-      } else if (cause instanceof ApiError && cause.status === 422) {
-        setPasswordError("Mật khẩu phải có từ 8 đến 128 ký tự và hai ô phải trùng khớp.");
-      } else {
-        setPasswordError("Không thể tạo mật khẩu lúc này. Vui lòng thử lại.");
-      }
-    } finally {
-      setPasswordSaving(false);
     }
   }
 
@@ -487,14 +454,7 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
                 {error && <div className="form-error" role="alert">{error}</div>}
                 <button className="primary-button" disabled={saving}>{saving ? "Đang lưu..." : "Lưu thay đổi"}</button>
               </form>
-              <form className="local-password-form" onSubmit={createPassword}>
-                <div><strong>Tạo mật khẩu đăng nhập</strong><span>Dành cho tài khoản được tạo bằng Google. Thao tác này không thay thế mật khẩu đã có.</span></div>
-                <label><span>Mật khẩu mới</span><input name="password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required disabled={passwordSaving} /></label>
-                <label><span>Xác nhận mật khẩu</span><input name="confirm_password" type="password" minLength={8} maxLength={128} autoComplete="new-password" required disabled={passwordSaving} /></label>
-                {passwordError && <div className="form-error" role="alert">{passwordError}</div>}
-                {passwordSuccess && <div className="form-success" role="status">{passwordSuccess}</div>}
-                <button className="secondary-button" disabled={passwordSaving}>{passwordSaving ? "Đang tạo..." : "Tạo mật khẩu"}</button>
-              </form>
+              <AccountSecurity email={user.email} />
               <div className="account-actions">
                 <div><strong>Đăng xuất khỏi mọi thiết bị</strong><span>Thu hồi tất cả phiên đăng nhập đang hoạt động của tài khoản này.</span></div>
                 <button className="secondary-button" onClick={() => void onLogoutAll()}>Đăng xuất tất cả</button>

@@ -10,10 +10,11 @@ rejected on the backend as well as in the UI. Existing non-Gmail account data
 is retained, but those accounts cannot authenticate under this policy.
 Email matching is case-insensitive; dots and plus aliases are not merged.
 
-The UI collects Gmail first, then the password. The email step does not query
-whether an account exists. Login and registration remain separate routes.
-The Google button appears on the first step; password confirmation appears only
-when an existing account must be linked. Recovery is available on the password step.
+Login and registration each show Gmail and password on one form. The Google
+button is on the same screen. Password confirmation is required when linking
+an existing account. Recovery is available directly from login.
+Account settings show the actual sign-in methods: Google-only users do not see
+a create-password form; users with a local password request a change via email.
 
 - Local account: log in with the existing password.
 - New Google identity: verified Google token creates one account.
@@ -177,7 +178,7 @@ Opening inbound SMTP ports is not necessary.
 Open https://vietnam-travel-advisor.duckdns.org/login in your browser.
 Use an existing Gmail account that has a local password (or register a test
 account through the application's Gmail/password registration flow).
-Enter its Gmail, Continue, then Forgot password. Submit the Gmail and wait for
+Choose Forgot password on the login form. Submit the Gmail and wait for
 the email; check Spam as well. Open the link, set and confirm a new password,
 and log in. Verify the old password and previously opened sessions no longer work.
 Open the same email link again: it must be rejected. Link expiry is 20 minutes;
@@ -228,6 +229,13 @@ delivery, the user must request another link. There is no automatic retry.
 Backend: `cd backend` then `python -m pytest -q` against a migrated, isolated test
 database. Frontend: `cd frontend` then `npm test` and `npm run build`.
 Never point regression tests at the production database.
+
+Browser layout tests: in `frontend`, install Chromium with
+`npx playwright install chromium`, then run `npm run test:e2e`.
+These check login, registration and recovery on laptop, phone, landscape and
+narrow effective viewports for zoom. They also check that vertical scrolling is
+enabled and the Google button resizes. The Google SDK is stubbed for these
+layout tests; actual Google sign-in still needs a manual check.
 
 CI starts PostgreSQL, Redis and Qdrant. PostgreSQL tests exercise the real schema;
 Redis tests cover concurrent rate limits and cache expiry; Qdrant tests create

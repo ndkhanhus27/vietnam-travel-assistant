@@ -95,6 +95,14 @@ jobs:
           VITE_API_BASE_URL: /api/v1
         run: npm run build
 
+      - name: Install browser for layout tests
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Check responsive authentication layouts
+        working-directory: frontend
+        run: npm run test:e2e
+
   repository:
     runs-on: ubuntu-latest
     steps:

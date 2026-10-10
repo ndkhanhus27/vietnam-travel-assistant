@@ -375,6 +375,16 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         result = await self.client.post("/api/v1/auth/google", json={"credential": "invalid"})
         self.assertEqual(result.status_code, 401)
 
+    async def test_auth_methods_require_login_and_report_existing_credentials(self):
+        self.assertEqual((await self.client.get("/api/v1/auth/methods")).status_code, 401)
+        local = (await self._register(self._email("methods"), "Password123!")).json()
+        methods = await self.client.get("/api/v1/auth/methods", headers=self._headers(local["access_token"]))
+        self.assertEqual(methods.json(), {"has_password": True, "google_linked": False})
+        self.google_verifier.identity = self._google_identity(self._email("methods-google"), "methods-google")
+        google = (await self.client.post("/api/v1/auth/google", json={"credential": "valid"})).json()
+        methods = await self.client.get("/api/v1/auth/methods", headers=self._headers(google["access_token"]))
+        self.assertEqual(methods.json(), {"has_password": False, "google_linked": True})
+
     async def test_non_gmail_is_rejected_on_all_public_auth_paths(self):
         for email in ["user@outlook.com", "user@hotmail.com", "user@gmail.com.attacker.com", "user@yahoo.com"]:
             with self.subTest(email=email):

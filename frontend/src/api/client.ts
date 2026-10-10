@@ -176,6 +176,7 @@ export async function streamConversation(
 }
 
 export const api = {
+  authMethods: () => request<{ has_password: boolean; google_linked: boolean }>("/auth/methods"),
   register: (payload: { display_name?: string | null; email: string; password: string }) => authenticate("/auth/register", payload),
   login: (payload: { email: string; password: string }) => authenticate("/auth/login", payload),
   googleLogin: (credential: string, password?: string) => authenticate("/auth/google", { credential, ...(password === undefined ? {} : { password }) }),

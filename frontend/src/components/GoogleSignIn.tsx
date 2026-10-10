@@ -44,8 +44,12 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
       onUnavailable("Đăng nhập bằng Google chỉ khả dụng trên tên miền HTTPS hoặc localhost.");
       return;
     }
+    let renderedWidth = -1;
     const render = () => {
       if (!window.google || !container.current) return;
+      const width = Math.floor(Math.min(400, container.current.clientWidth));
+      if (width <= 0 || width === renderedWidth) return;
+      renderedWidth = width;
       container.current.replaceChildren();
       window.google.accounts.id.initialize({
         client_id: clientId,
@@ -57,23 +61,30 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
           onCredential(credential);
         },
       });
-      const width = Math.max(240, Math.min(400, container.current.clientWidth));
-      window.google.accounts.id.renderButton(container.current, { type: "standard", theme: "outline", size: "large", width: String(width), locale: "vi" });
+      window.google.accounts.id.renderButton(container.current, {
+        type: width < 200 ? "icon" : "standard", theme: "outline", size: "large",
+        ...(width >= 200 ? { width: String(width) } : {}), locale: "vi",
+      });
       setReady(true);
     };
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(render);
+    if (container.current) observer?.observe(container.current);
+    const failed = () => onUnavailable("Không thể tải tính năng đăng nhập bằng Google.");
     const existing = document.querySelector<HTMLScriptElement>('script[src="https://accounts.google.com/gsi/client"]');
     if (existing) {
       if (window.google) render();
       else existing.addEventListener("load", render, { once: true });
-      return;
+      existing.addEventListener("error", failed, { once: true });
+      return () => { observer?.disconnect(); existing.removeEventListener("load", render); existing.removeEventListener("error", failed); };
     }
     const script = document.createElement("script");
     script.src = "https://accounts.google.com/gsi/client";
     script.async = true;
     script.defer = true;
-    script.onload = render;
-    script.onerror = () => onUnavailable("Không thể tải tính năng đăng nhập bằng Google.");
+    script.addEventListener("load", render, { once: true });
+    script.addEventListener("error", failed, { once: true });
     document.head.appendChild(script);
+    return () => { observer?.disconnect(); script.removeEventListener("load", render); script.removeEventListener("error", failed); };
   }, [clientId, onCredential, onUnavailable, originSupported]);
 
   if (!clientId || !originSupported) {

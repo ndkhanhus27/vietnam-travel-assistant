@@ -30,6 +30,18 @@ from app.services.auth import AuthService
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
 
+@router.get("/methods")
+async def authentication_methods(
+    current_user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[AuthService, Depends(get_auth_service)],
+) -> dict[str, bool]:
+    accounts = await service.repository.list_auth_accounts_for_user(current_user.id)
+    return {
+        "has_password": any(account.provider == "local" for account in accounts),
+        "google_linked": any(account.provider == "google" for account in accounts),
+    }
+
+
 @router.post(
     "/register",
     response_model=AuthResponse,

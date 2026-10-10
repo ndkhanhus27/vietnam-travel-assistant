@@ -17,47 +17,57 @@ afterEach(cleanup);
 function show(page: React.ReactNode) { return render(<MemoryRouter>{page}</MemoryRouter>); }
 
 describe("Authentication user flows", () => {
-  it("collects Gmail first, then submits the password", async () => {
+  it("logs in with Gmail and password on the same form", async () => {
     const user = userEvent.setup();
     const login = vi.spyOn(api, "login").mockResolvedValue({ user: { id: "existing" } } as never);
     show(<AuthPage mode="login" />);
-    expect(screen.queryByLabelText("Mật khẩu")).toBeNull();
+    expect(screen.getByLabelText("Mật khẩu")).toBeTruthy();
     await user.type(screen.getByLabelText("Địa chỉ Gmail"), "User@GMAIL.COM");
-    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
     expect(login).not.toHaveBeenCalled();
     await user.type(screen.getByLabelText("Mật khẩu"), "Password123!");
-    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
+    await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
     await waitFor(() => expect(login).toHaveBeenCalledWith({ email: "user@gmail.com", password: "Password123!" }));
   });
 
-  it("rejects Outlook before proceeding to the password step", async () => {
+  it("rejects Outlook without submitting login credentials", async () => {
     const user = userEvent.setup();
     show(<AuthPage mode="login" />);
     await user.type(screen.getByLabelText("Địa chỉ Gmail"), "user@outlook.com");
-    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
+    await user.type(screen.getByLabelText("Mật khẩu"), "Password123!");
+    const login = vi.spyOn(api, "login");
+    await user.click(screen.getByRole("button", { name: "Đăng nhập" }));
     expect(screen.getByRole("alert").textContent).toContain("@gmail.com");
-    expect(screen.queryByLabelText("Mật khẩu")).toBeNull();
+    expect(login).not.toHaveBeenCalled();
   });
 
-  it("lets the user edit Gmail before submitting a password", async () => {
+  it("allows changing Gmail directly on the login form", async () => {
     const user = userEvent.setup();
     show(<AuthPage mode="login" />);
     await user.type(screen.getByLabelText("Địa chỉ Gmail"), "user@gmail.com");
-    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
-    await user.click(screen.getByRole("button", { name: "Thay đổi" }));
-    expect((screen.getByLabelText("Địa chỉ Gmail") as HTMLInputElement).value).toBe("user@gmail.com");
+    await user.clear(screen.getByLabelText("Địa chỉ Gmail"));
+    await user.type(screen.getByLabelText("Địa chỉ Gmail"), "another@gmail.com");
+    expect((screen.getByLabelText("Địa chỉ Gmail") as HTMLInputElement).value).toBe("another@gmail.com");
   });
 
-  it("registers through the Gmail step and password confirmation", async () => {
+  it("registers through a single Gmail and password form", async () => {
     const user = userEvent.setup();
     const register = vi.spyOn(api, "register").mockResolvedValue({ user: { id: "new" } } as never);
     show(<AuthPage mode="register" />);
     await user.type(screen.getByLabelText("Địa chỉ Gmail"), "new@gmail.com");
-    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
     await user.type(screen.getByLabelText("Mật khẩu", { exact: true }), "Password123!");
     await user.type(screen.getByLabelText("Xác nhận mật khẩu"), "Password123!");
-    await user.click(screen.getByRole("button", { name: "Tiếp tục" }));
+    await user.click(screen.getByRole("button", { name: "Tạo tài khoản" }));
     await waitFor(() => expect(register).toHaveBeenCalledWith({ email: "new@gmail.com", password: "Password123!", display_name: null }));
+  });
+  it("shows and hides the password without submitting the form", async () => {
+    const user = userEvent.setup();
+    show(<AuthPage mode="login" />);
+    const input = screen.getByLabelText("Mật khẩu") as HTMLInputElement;
+    expect(input.type).toBe("password");
+    await user.click(screen.getByRole("button", { name: "Hiện mật khẩu" }));
+    expect(input.type).toBe("text");
+    await user.click(screen.getByRole("button", { name: "Ẩn mật khẩu" }));
+    expect(input.type).toBe("password");
   });
   it("confirms the local password before linking Google, then authenticates", async () => {
     const user = userEvent.setup();
