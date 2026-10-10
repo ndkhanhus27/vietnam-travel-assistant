@@ -62,6 +62,11 @@ REQUIRED_FIELDS = {
 }
 
 
+def requires_rag(case: dict[str, Any]) -> bool:
+    tools = case.get("expected_tools")
+    return isinstance(tools, list) and "search_travel_knowledge" in tools
+
+
 def parse_args() -> argparse.Namespace:
     default_dataset = Path(__file__).with_name("dataset.jsonl")
     parser = argparse.ArgumentParser(
@@ -226,6 +231,9 @@ def validate_records(records: list[dict[str, Any]]) -> list[str]:
                 f"{record.get('review_status')!r}"
             )
 
+        if record.get("review_status") == "approved" and requires_rag(record) and chunk_ids == []:
+            errors.append(f"line {line_number}: approved RAG case must have relevant_chunk_ids")
+
         notes = record.get("notes")
         if notes is not None and not isinstance(notes, str):
             errors.append(
@@ -290,6 +298,7 @@ def print_summary(
     records: list[dict[str, Any]],
     *,
     chunk_check_skipped: bool,
+    chunk_check_failed: bool = False,
 ) -> None:
     category_counts = Counter(
         record.get("category", "<missing>") for record in records
@@ -317,7 +326,7 @@ def print_summary(
     print(f"Distinct referenced chunks: {len(referenced_ids)}")
     print(
         "Chunk existence check: "
-        + ("SKIPPED" if chunk_check_skipped else "PASSED")
+        + ("SKIPPED" if chunk_check_skipped else "FAILED" if chunk_check_failed else "PASSED")
     )
 
 
@@ -325,6 +334,7 @@ def main() -> int:
     args = parse_args()
     records, errors = read_jsonl(args.dataset)
     errors.extend(validate_records(records))
+    chunk_errors: list[str] = []
 
     if not args.skip_chunk_check:
         try:
@@ -333,13 +343,15 @@ def main() -> int:
                 args.collection,
             )
         except (OSError, ValueError, urllib.error.URLError) as exc:
-            errors.append(f"Qdrant chunk validation failed: {exc}")
+            chunk_errors.append(f"Qdrant chunk validation failed: {exc}")
         else:
-            errors.extend(validate_chunk_ids(records, existing_ids))
+            chunk_errors.extend(validate_chunk_ids(records, existing_ids))
+    errors.extend(chunk_errors)
 
     print_summary(
         records,
         chunk_check_skipped=args.skip_chunk_check,
+        chunk_check_failed=bool(chunk_errors),
     )
     if errors:
         print("\nValidation errors:", file=sys.stderr)

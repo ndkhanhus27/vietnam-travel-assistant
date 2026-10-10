@@ -40,6 +40,7 @@ class RerankedChunk:
     entities: list[str]
     entity_types: list[str]
     primary_entities: list[str]
+    cross_encoder_score: float | None = None
 
 
 class TravelReranker:
@@ -62,6 +63,10 @@ class TravelReranker:
         retriever: HybridRetriever | None = None,
     ) -> None:
         self.retriever = retriever if retriever is not None else HybridRetriever()
+        self.model = None
+        if not settings.rag_rerank_enabled:
+            print("[reranker] disabled; using hybrid order")
+            return
 
         if torch.cuda.is_available():
             self.device = "cuda"
@@ -75,7 +80,12 @@ class TravelReranker:
             settings.rag_reranker_model,
             device=self.device,
             max_length=settings.rag_reranker_max_length,
+            **({"revision": settings.rag_reranker_revision} if settings.rag_reranker_revision else {}),
         )
+        if self.device == "cpu" and settings.rag_reranker_cpu_int8:
+            torch.ao.quantization.quantize_dynamic(
+                self.model.model, {torch.nn.Linear}, dtype=torch.qint8, inplace=True,
+            )
 
     @staticmethod
     def _build_passage(item: HybridRetrievedChunk) -> str:
@@ -108,38 +118,32 @@ class TravelReranker:
         if limit is None:
             limit = settings.rag_rerank_limit
 
-        pairs = [(query, self._build_passage(item)) for item in candidates]
+        if limit <= 0:
+            return []
 
-        scores = self.model.predict(
-            pairs,
-            batch_size=settings.rag_reranker_batch_size,
-            show_progress_bar=False,
-            convert_to_numpy=True,
-        )
-
-        scores = np.asarray(scores, dtype=np.float32).reshape(-1)
-
-        if len(scores) != len(candidates):
-            raise RuntimeError("Số reranker scores không khớp số candidates.")
-
-        scored = []
-        for hybrid_rank, (candidate, rerank_score) in enumerate(
-            zip(candidates, scores),
-            start=1,
-        ):
-            scored.append(
-                (
-                    float(rerank_score),
-                    hybrid_rank,
-                    candidate,
-                )
+        scores = None
+        if self.model is None:
+            ranked = [(index, float(item.hybrid_score)) for index, item in enumerate(candidates)]
+        else:
+            pairs = [(query, self._build_passage(item)) for item in candidates]
+            scores = self.model.predict(
+                pairs,
+                batch_size=settings.rag_reranker_batch_size,
+                show_progress_bar=False,
+                convert_to_numpy=True,
             )
-
-        scored.sort(key=lambda x: x[0], reverse=True)
+            scores = np.asarray(scores, dtype=np.float32).reshape(-1)
+            if len(scores) != len(candidates):
+                raise RuntimeError("Số reranker scores không khớp số candidates.")
+            if not np.isfinite(scores).all():
+                raise RuntimeError("Cross-encoder returned non-finite scores")
+            ranked = sorted(enumerate(scores.tolist()), key=lambda item: (-item[1], item[0]))
 
         results: list[RerankedChunk] = []
 
-        for rerank_score, hybrid_rank, candidate in scored[:limit]:
+        for candidate_index, rerank_score in ranked[:limit]:
+            candidate = candidates[candidate_index]
+            hybrid_rank = candidate_index + 1
             results.append(
                 RerankedChunk(
                     point_id=candidate.point_id,
@@ -161,6 +165,7 @@ class TravelReranker:
                     entities=candidate.entities,
                     entity_types=candidate.entity_types,
                     primary_entities=candidate.primary_entities,
+                    cross_encoder_score=float(scores[candidate_index]) if scores is not None else None,
                 )
             )
 
@@ -182,7 +187,7 @@ class TravelReranker:
 
         hybrid_candidates = self.retriever.search(
             query,
-            limit=settings.rag_rerank_candidates,
+            limit=settings.rag_rerank_candidates if self.model is not None else limit,
         )
 
         return self.rerank(

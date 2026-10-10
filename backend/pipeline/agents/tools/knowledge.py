@@ -276,6 +276,7 @@ class TravelKnowledgeTool:
                 "hybrid_score": float(
                     chunk.hybrid_score
                 ),
+                "cross_encoder_score": chunk.cross_encoder_score,
 
                 "source_name": (
                     chunk.source_name
