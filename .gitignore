@@ -25,3 +25,7 @@ vite.config.d.ts
 # Browser-test reports and screenshots
 /frontend/test-results/
 /frontend/playwright-report/
+
+# Generated evaluation outputs stay local; publish only the concise report.
+/backend/evaluation/reports/*
+!/backend/evaluation/reports/report_vi.md

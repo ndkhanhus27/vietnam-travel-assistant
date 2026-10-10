@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
+import math
+import platform
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -29,10 +33,19 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--limit", type=int)
     parser.add_argument("--category")
+    parser.add_argument("--case-id", action="append", default=[])
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
+    parser.add_argument("--output", type=Path)
+    parser.add_argument("--approved-only", action="store_true")
+    parser.add_argument("--delay-seconds", type=float, default=0.0)
     args = parser.parse_args()
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
+    if args.resume and args.output is None:
+        parser.error("--resume requires --output pointing to the previous report")
+    if not math.isfinite(args.delay_seconds) or args.delay_seconds < 0:
+        parser.error("--delay-seconds must be finite and non-negative")
     return args
 
 
@@ -156,6 +169,8 @@ def empty_result(case: dict[str, Any]) -> dict[str, Any]:
         },
         "answer": "",
         "citations": [],
+        "evidence": [],
+        "observations": [],
         "warnings": [],
         "latency_ms": 0.0,
         "error": None,
@@ -247,6 +262,8 @@ def evaluate_case(workflow: Any, case: dict[str, Any]) -> dict[str, Any]:
         }
         result["answer"] = answer
         result["citations"] = [model_to_json(item) for item in citations]
+        result["evidence"] = [model_to_json(item) for item in evidence]
+        result["observations"] = [model_to_json(item) for item in observations]
         result["warnings"] = (
             list(reasoner_output.warnings) if reasoner_output is not None else []
         )
@@ -301,14 +318,14 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
                     for item in retrieval_results
                 ),
                 len(retrieval_results),
-            ),
+            ) if retrieval_results else None,
             "mrr_at_10": safe_div(
                 sum(
                     item["retrieval"]["reciprocal_rank_at_10"] or 0.0
                     for item in retrieval_results
                 ),
                 len(retrieval_results),
-            ),
+            ) if retrieval_results else None,
         },
         "workflow": {
             "success_rate": safe_div(
@@ -320,8 +337,8 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
                     for item in required_results
                 ),
                 len(required_results),
-            ),
-            "citation_validity_rate": safe_div(valid_citations, total_citations),
+            ) if required_results else None,
+            "citation_validity_rate": safe_div(valid_citations, total_citations) if total_citations else None,
             "degraded_rate": safe_div(
                 sum(item["workflow"]["degraded"] for item in results), cases
             ),
@@ -390,12 +407,72 @@ def load_resume_report(path: Path) -> tuple[str, list[dict[str, Any]]]:
     )
 
 
+def selection_hash(cases: list[dict[str, Any]]) -> str:
+    payload = json.dumps(cases, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def validate_resume(report: dict[str, Any], cases: list[dict[str, Any]]) -> None:
+    if report.get("run", {}).get("selection_sha256") != selection_hash(cases):
+        raise ValueError("Cannot resume: dataset or case selection changed; use a new output.")
+    ids = [item["id"] for item in report.get("cases", [])]
+    selected = {case["id"] for case in cases}
+    if len(ids) != len(set(ids)) or not set(ids).issubset(selected):
+        raise ValueError("Cannot resume: unexpected or duplicate case IDs.")
+
+
+def runtime_metadata() -> dict[str, Any]:
+    from app.core import config as app_config
+    import pipeline.agents.workflow
+    from app.core.config import settings
+
+    # Explicit allowlist: never serialize settings containing credentials.
+    names = (
+        "gemini_model", "rag_embedding_model", "rag_reranker_model",
+        "rag_rerank_enabled", "rag_rerank_limit", "qdrant_collection",
+        "rag_chunk_size", "rag_chunk_overlap",
+        "rag_retrieve_limit", "rag_context_chunks", "rag_max_chunks_per_document",
+        "rag_dense_candidates", "rag_bm25_candidates", "rag_hybrid_limit",
+        "rag_rrf_k", "rag_rrf_dense_weight", "rag_rrf_bm25_weight",
+        "rag_rrf_entity_weight", "rag_rerank_candidates",
+        "rag_reranker_batch_size", "rag_reranker_max_length",
+        "rag_reranker_cpu_int8",
+        "rag_reranker_revision",
+        "openweather_units", "openweather_language", "openweather_timeout_seconds",
+        "goong_timeout_seconds", "goong_retry_backoff_seconds",
+    )
+    roots = [Path(app_config.__file__).parents[1], Path(pipeline.agents.workflow.__file__).parents[1]]
+    digest = hashlib.sha256()
+    for root in roots:
+        for path in sorted(root.rglob("*.py")):
+            digest.update(f"{root.name}/{path.relative_to(root).as_posix()}\n".encode("utf-8"))
+            digest.update(path.read_bytes())
+    versions = {}
+    for name in ("google-genai", "qdrant-client", "sentence-transformers", "torch", "langgraph"):
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    return {
+        "python": platform.python_version(),
+        "platform": platform.platform(),
+        "application_source_sha256": digest.hexdigest(),
+        "evaluation_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "package_versions": versions,
+        "config": {name: getattr(settings, name) for name in names},
+    }
+
+
 def print_summary(report: dict[str, Any]) -> None:
     summary = report["summary"]
     planner = summary["planner"]
     retrieval = summary["retrieval"]
     workflow = summary["workflow"]
     latency = summary["latency_ms"]
+
+    def rate(value: float | None) -> str:
+        return "N/A" if value is None else f"{value:.2%}"
+
     print("=" * 78)
     print("VIETNAM TRAVEL ADVISOR EVALUATION")
     print("=" * 78)
@@ -413,7 +490,7 @@ def print_summary(report: dict[str, Any]) -> None:
     print(f"Tool F1                   : {planner['tool_f1']:.2%}")
     print(
         "Recall@5 / MRR@10         : "
-        f"{retrieval['recall_at_5']:.2%} / {retrieval['mrr_at_10']:.2%}"
+        f"{rate(retrieval['recall_at_5'])} / {rate(retrieval['mrr_at_10'])}"
     )
     print(f"Workflow Success          : {workflow['success_rate']:.2%}")
     print(
@@ -422,11 +499,11 @@ def print_summary(report: dict[str, Any]) -> None:
     )
     print(
         "Citation Required Pass    : "
-        f"{workflow['citation_required_pass_rate']:.2%}"
+        f"{rate(workflow['citation_required_pass_rate'])}"
     )
     print(
         "Citation Validity         : "
-        f"{workflow['citation_validity_rate']:.2%}"
+        f"{rate(workflow['citation_validity_rate'])}"
     )
     print(
         "Latency p50 / p95         : "
@@ -437,13 +514,22 @@ def print_summary(report: dict[str, Any]) -> None:
 def main() -> int:
     args = parse_args()
     try:
-        cases = load_cases(DEFAULT_DATASET)
-    except ValueError as exc:
+        cases = load_cases(args.dataset)
+    except (OSError, ValueError) as exc:
         print(exc)
         return 1
 
+    if args.approved_only:
+        cases = [case for case in cases if case["review_status"] == "approved"]
     if args.category:
         cases = [case for case in cases if case["category"] == args.category]
+    if args.case_id:
+        requested = set(args.case_id)
+        missing = requested - {case["id"] for case in cases}
+        if missing:
+            print(f"Unknown or filtered case IDs: {sorted(missing)}")
+            return 1
+        cases = [case for case in cases if case["id"] in requested]
     if args.limit is not None:
         cases = cases[: args.limit]
     if not cases:
@@ -451,12 +537,40 @@ def main() -> int:
         return 1
 
     started_at = utc_now()
+    output = args.output or (
+        EVALUATION_DIR / "reports" / f"evaluation_{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}.json"
+    )
+    if output.exists() and not args.resume:
+        print(f"Output already exists: {output}. Use --resume or a new path.")
+        return 1
+    metadata = {
+        "dataset": str(args.dataset),
+        "dataset_sha256": hashlib.sha256(args.dataset.read_bytes()).hexdigest(),
+        "selection_sha256": selection_hash(cases),
+        "selected_ids": [case["id"] for case in cases],
+        "approved_only": args.approved_only,
+        "delay_seconds": args.delay_seconds,
+        "metric_scope": "final_plan_and_aggregated_evidence; citations_are_id_checks",
+        **runtime_metadata(),
+    }
     results: list[dict[str, Any]] = []
     if args.resume:
         try:
-            started_at, results = load_resume_report(DEFAULT_REPORT)
+            previous = json.loads(output.read_text(encoding="utf-8"))
+            validate_resume(previous, cases)
+            if previous["run"].get("config") != metadata["config"]:
+                raise ValueError("Cannot resume: model/RAG config changed; use a new output.")
+            if previous["run"].get("delay_seconds") != args.delay_seconds:
+                raise ValueError("Cannot resume: pacing changed; use a new output.")
+            for key in ("application_source_sha256", "evaluation_source_sha256", "package_versions"):
+                if previous["run"].get(key) != metadata[key]:
+                    raise ValueError(f"Cannot resume: {key} changed; use a new output.")
+            started_at, results = load_resume_report(output)
         except ValueError as exc:
             print(exc)
+            return 1
+        except OSError as exc:
+            print(f"Cannot resume: {exc}")
             return 1
 
     completed_ids = {item["id"] for item in results}
@@ -482,9 +596,12 @@ def main() -> int:
             completed_at=None,
             selected_cases=len(cases),
         )
-        write_report(DEFAULT_REPORT, checkpoint)
+        checkpoint["run"].update(metadata)
+        write_report(output, checkpoint)
         if result["error"]:
             print(f"  ERROR: {result['error']}")
+        if index < len(pending) and args.delay_seconds:
+            time.sleep(args.delay_seconds)
 
     report = build_report(
         results=results,
@@ -492,10 +609,12 @@ def main() -> int:
         completed_at=utc_now(),
         selected_cases=len(cases),
     )
-    write_report(DEFAULT_REPORT, report)
+    report["run"].update(metadata)
+    write_report(output, report)
     print_summary(report)
-    print(f"Report: {DEFAULT_REPORT}")
-    return 0
+    print(f"Report: {output}")
+    print("Note: success includes degraded answers; citations check IDs, not entailment.")
+    return 1 if any(item["error"] for item in results) else 0
 
 
 if __name__ == "__main__":

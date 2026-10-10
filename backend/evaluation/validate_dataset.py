@@ -290,6 +290,7 @@ def print_summary(
     records: list[dict[str, Any]],
     *,
     chunk_check_skipped: bool,
+    chunk_check_failed: bool = False,
 ) -> None:
     category_counts = Counter(
         record.get("category", "<missing>") for record in records
@@ -317,7 +318,7 @@ def print_summary(
     print(f"Distinct referenced chunks: {len(referenced_ids)}")
     print(
         "Chunk existence check: "
-        + ("SKIPPED" if chunk_check_skipped else "PASSED")
+        + ("SKIPPED" if chunk_check_skipped else "FAILED" if chunk_check_failed else "PASSED")
     )
 
 
@@ -325,6 +326,7 @@ def main() -> int:
     args = parse_args()
     records, errors = read_jsonl(args.dataset)
     errors.extend(validate_records(records))
+    chunk_errors: list[str] = []
 
     if not args.skip_chunk_check:
         try:
@@ -333,13 +335,15 @@ def main() -> int:
                 args.collection,
             )
         except (OSError, ValueError, urllib.error.URLError) as exc:
-            errors.append(f"Qdrant chunk validation failed: {exc}")
+            chunk_errors.append(f"Qdrant chunk validation failed: {exc}")
         else:
-            errors.extend(validate_chunk_ids(records, existing_ids))
+            chunk_errors.extend(validate_chunk_ids(records, existing_ids))
+    errors.extend(chunk_errors)
 
     print_summary(
         records,
         chunk_check_skipped=args.skip_chunk_check,
+        chunk_check_failed=bool(chunk_errors),
     )
     if errors:
         print("\nValidation errors:", file=sys.stderr)

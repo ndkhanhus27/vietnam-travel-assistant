@@ -89,11 +89,13 @@ class Settings(BaseSettings):
     # RERANKER
     # ============================================================
     rag_rerank_enabled: bool = True
-    rag_reranker_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
-    rag_rerank_candidates: int = 20
+    rag_reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    rag_rerank_candidates: int = 10
     rag_rerank_limit: int = 6
     rag_reranker_batch_size: int = 8
     rag_reranker_max_length: int = 512
+    rag_reranker_cpu_int8: bool = True
+    rag_reranker_revision: str | None = None
     
     # ============================================================
     # WEB RESEARCH
