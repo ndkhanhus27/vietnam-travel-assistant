@@ -8,6 +8,7 @@ import { PasswordField } from "../components/PasswordField";
 import { isGmailAddress } from "../auth/emailPolicy";
 import { Button } from "antd";
 import { useLocale } from "../locale/LocaleProvider";
+import { localizeNotification } from "../locale/notifications";
 
 export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const navigate = useNavigate();
@@ -85,7 +86,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
     <p className="auth-subtitle">{linkCredential ? t("Nhập mật khẩu hiện tại để liên kết tài khoản.", "Enter your current password to link this account.") : isLogin ? t("Chào mừng bạn quay lại.", "Welcome back.") : t("Bắt đầu hành trình chỉ trong vài bước.", "Start your journey in a few simple steps.")}</p>
     {!linkCredential && <>
       <GoogleSignIn disabled={loading} onCredential={googleCredential} onUnavailable={setGoogleNotice} />
-      {googleNotice && <p className="auth-provider-notice" role="status">{googleNotice}</p>}
+      {googleNotice && <p className="auth-provider-notice" role="status">{localizeNotification(googleNotice)}</p>}
       <div className="or-divider"><span>{t("hoặc", "or")}</span></div>
     </>}
     <form className="auth-form" onSubmit={submit} key={linkCredential ? "link" : mode}>
@@ -93,7 +94,7 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
       <PasswordField autoComplete={isLogin || linkCredential ? "current-password" : "new-password"} disabled={loading} autoFocus={Boolean(linkCredential)} />
       {!isLogin && !linkCredential && <PasswordField label={t("Xác nhận mật khẩu", "Confirm password")} name="confirm_password" autoComplete="new-password" disabled={loading} />}
       {(isLogin || linkCredential) && <Link className="auth-forgot" to="/forgot-password" state={{ email }}>{t("Quên mật khẩu?", "Forgot password?")}</Link>}
-      {error && <div className="form-error" role="alert">{error}</div>}
+      {error && <div className="form-error" role="alert">{localizeNotification(error)}</div>}
       <Button htmlType="submit" type="primary" className="auth-submit" loading={loading}>{linkCredential ? t("Xác nhận liên kết Google", "Confirm Google link") : isLogin ? t("Đăng nhập", "Sign in") : t("Tạo tài khoản", "Create account")}</Button>
     </form>
     {linkCredential ? <button className="auth-back" type="button" onClick={() => { setLinkCredential(null); setError(""); }} disabled={loading}>{t("Quay lại đăng nhập", "Back to sign in")}</button> :

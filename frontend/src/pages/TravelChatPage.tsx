@@ -11,6 +11,7 @@ import { Modal } from "../components/Modal";
 import { AccountSecurity } from "../components/AccountSecurity";
 import { Button, Segmented } from "antd";
 import { useLocale } from "../locale/LocaleProvider";
+import { localizeNotification } from "../locale/notifications";
 import {
   ArchiveIcon, ChatIcon, CheckIcon, EditIcon, ExternalIcon, LogoutIcon, MenuIcon,
   MoreIcon, PlusIcon, SendIcon, SettingsIcon, TrashIcon, UsersIcon, WarningIcon,
@@ -291,14 +292,14 @@ export function TravelChatPage() {
       {mobileSidebarOpen && <button className="mobile-backdrop" onClick={() => setMobileSidebarOpen(false)} aria-label={t("Đóng thanh bên", "Close sidebar")} />}
       <main className="chat-main">
         <header className="mobile-header"><button className="icon-button" onClick={() => setMobileSidebarOpen(true)} aria-label={t("Mở thanh bên", "Open sidebar")}><MenuIcon /></button><span>Vietnam Travel Advisor</span><span className="mobile-header-spacer" /></header>
-        <header className="desktop-chat-header"><strong>{activeConversation ? titleOf(activeConversation, t("Cuộc trò chuyện mới", "New conversation")) : t("Cuộc trò chuyện mới", "New conversation")}</strong></header>
+        {!conversationId && pageError && <div className="inline-error chat-alert" role="alert">{localizeNotification(pageError)}</div>}
         {!conversationId ? <EmptyState onSuggestion={send} /> : activeConversation || historyLoading ? (
           <section className="conversation-view" ref={viewRef} aria-label={activeConversation ? titleOf(activeConversation, t("Cuộc trò chuyện mới", "New conversation")) : t("Cuộc trò chuyện", "Conversation")} onScroll={(event) => { const element = event.currentTarget; stayAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120; }}>
             <div className="message-list">
               {historyLoading && !messages.length && <div className="history-skeleton"><span /><span /><span /></div>}
               {messages.map((message) => <MessageView key={message.id} message={message} degraded={degradedIds.has(message.id)} />)}
               {progress && <AgentProgress label={progress} />}
-              {pageError && <div className="inline-error" role="alert">{pageError}</div>}
+              {pageError && <div className="inline-error" role="alert">{localizeNotification(pageError)}</div>}
               {rateLimitSeconds !== null && <div className="inline-error" role="alert">{t(`Bạn thao tác quá nhanh. Vui lòng thử lại sau ${rateLimitSeconds} giây.`, `Too many requests. Try again in ${rateLimitSeconds} seconds.`)}</div>}
             </div>
           </section>
@@ -368,7 +369,7 @@ function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) 
 export function MessageView({ message, degraded }: { message: MessageResponse; degraded: boolean }) {
   const { t } = useLocale();
   if (message.role === "user") return <article className="user-message"><div className="message-meta">{t("Bạn", "You")}</div><p>{message.content}</p></article>;
-  return <article className="assistant-message"><div className="assistant-mark">AI</div><div className="assistant-bubble"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{message.warnings?.[0] || t("Một số thông tin chưa thể được kiểm chứng đầy đủ.", "Some information could not be fully verified.")}</div></div> : null}</div></article>;
+  return <article className="assistant-message"><div className="assistant-mark">AI</div><div className="assistant-bubble"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{t("Một số thông tin chưa thể được kiểm chứng đầy đủ.", "Some information could not be fully verified.")}</div></div> : null}</div></article>;
 }
 
 function CitationList({ citations }: { citations: CitationResponse[] }) {
@@ -405,7 +406,7 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const { appearance, setAppearance, mode, setMode } = useAppearance();
-  const { language, setLanguage, t } = useLocale();
+  const { t } = useLocale();
 
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
@@ -433,9 +434,8 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
           {tab === "appearance" ? (
             <section>
               <h3>{t("Giao diện", "Appearance")}</h3>
-              <p>{t("Chọn ngôn ngữ, chế độ hiển thị và màu nền.", "Choose your language, display mode, and base color.")}</p>
-              <div className="setting-control"><span>{t("Ngôn ngữ", "Language")}</span><Segmented value={language} onChange={(value) => setLanguage(value as "vi" | "en")} options={[{ label: "Tiếng Việt", value: "vi" }, { label: "English", value: "en" }]} /></div>
-              <div className="setting-control"><span>{t("Chế độ", "Mode")}</span><Segmented value={mode} onChange={(value) => setMode(value as "light" | "dark" | "system")} options={[{ label: t("Sáng", "Light"), value: "light" }, { label: t("Tối", "Dark"), value: "dark" }, { label: t("Hệ thống", "System"), value: "system" }]} /></div>
+              <p>Chọn chủ đề và màu giao diện.</p>
+              <div className="setting-control"><span>{t("Chủ đề", "Theme")}</span><Segmented value={mode} onChange={(value) => setMode(value as "light" | "dark" | "system")} options={[{ label: t("Sáng", "Light"), value: "light" }, { label: t("Tối", "Dark"), value: "dark" }, { label: t("Hệ thống", "System"), value: "system" }]} /></div>
               <div className="appearance-options">
                 {appearanceOptions.map((option) => (
                   <button key={option.value} className={appearance === option.value ? "is-selected" : ""} onClick={() => setAppearance(option.value)}>
@@ -455,7 +455,7 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
               </div>
               <form className="profile-form" onSubmit={saveProfile}>
                 <label><span>{t("Tên hiển thị", "Display name")}</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>
-                {error && <div className="form-error" role="alert">{error}</div>}
+                {error && <div className="form-error" role="alert">{localizeNotification(error)}</div>}
                 <Button htmlType="submit" type="primary" loading={saving}>{t("Lưu thay đổi", "Save changes")}</Button>
               </form>
               <AccountSecurity email={user.email} />

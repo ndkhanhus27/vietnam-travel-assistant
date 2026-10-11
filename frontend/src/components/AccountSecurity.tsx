@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api/client";
 import { Button } from "antd";
 import { useLocale } from "../locale/LocaleProvider";
+import { localizeNotification } from "../locale/notifications";
 
 export function AccountSecurity({ email }: { email: string }) {
   const { t } = useLocale();
@@ -44,7 +45,7 @@ export function AccountSecurity({ email }: { email: string }) {
       <div><strong>{t("Mật khẩu", "Password")}</strong><span>{t("Xác nhận qua Gmail khi thay đổi mật khẩu.", "Confirm password changes through Gmail.")}</span></div>
       <Button onClick={() => void changePassword()} disabled={sending || sent}>{sending ? t("Đang gửi...", "Sending...") : sent ? t("Đã gửi yêu cầu", "Request sent") : t("Đổi mật khẩu", "Change password")}</Button>
     </div> : methods && <p>{t("Tài khoản này đăng nhập bằng Google. Mật khẩu được quản lý trong tài khoản Google của bạn.", "This account signs in with Google. Its password is managed by Google.")}</p>}
-    {error && <div className="form-error" role="alert">{error}</div>}
+    {error && <div className="form-error" role="alert">{localizeNotification(error)}</div>}
     {message && <div className="form-success" role="status">{message}</div>}
   </section>;
 }

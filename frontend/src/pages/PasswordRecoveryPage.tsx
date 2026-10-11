@@ -6,6 +6,7 @@ import { AuthLayout } from "../components/AuthLayout";
 import { PasswordField } from "../components/PasswordField";
 import { Button } from "antd";
 import { useLocale } from "../locale/LocaleProvider";
+import { localizeNotification } from "../locale/notifications";
 
 export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
   const { t } = useLocale();
@@ -66,7 +67,7 @@ export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
       </> : <label><span>{t("Địa chỉ Gmail", "Gmail address")}</span><input name="email" type="email" autoComplete="email" defaultValue={initialEmail} required disabled={loading} /></label>}
       <Button htmlType="submit" type="primary" className="auth-submit" loading={loading}>{reset ? t("Lưu mật khẩu mới", "Save new password") : t("Gửi liên kết xác nhận", "Send recovery link")}</Button>
     </form>}
-    {error && <div className="form-error" role="alert">{error}</div>}
+    {error && <div className="form-error" role="alert">{localizeNotification(error)}</div>}
     {message && <p role="status">{message}</p>}
     <p className="auth-switch"><Link to="/login">{t("Quay lại đăng nhập", "Back to sign in")}</Link></p>
     {reset && <p><Link to="/forgot-password">{t("Yêu cầu liên kết mới", "Request a new link")}</Link></p>}

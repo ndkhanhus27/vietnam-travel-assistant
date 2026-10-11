@@ -33,13 +33,17 @@ async function mockAuthenticatedApi(page: Page) {
   });
 }
 
-for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone", width: 390, height: 844 }]) {
+for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "phone", width: 390, height: 844 }, { name: "zoom", width: 800, height: 450 }, { name: "large-zoom", width: 360, height: 225 }]) {
   test(`client shell fits ${viewport.name}`, async ({ page }, info) => {
     await mockAuthenticatedApi(page);
     await page.setViewportSize(viewport);
     await page.goto("/");
     await expect(page.getByText("Bạn muốn khám phá đâu hôm nay?")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    await expect(page.locator(".desktop-chat-header")).toHaveCount(0);
+    const composer = await page.locator(".composer").boundingBox();
+    expect(composer!.y + composer!.height).toBeLessThanOrEqual(viewport.height);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(viewport.height);
     await page.screenshot({ path: info.outputPath("client.png"), fullPage: true });
   });
 
@@ -57,15 +61,16 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
   });
 }
 
-test("admin navigation, language and theme remain usable on mobile", async ({ page }) => {
+test("admin navigation and theme remain usable on mobile", async ({ page }) => {
   await mockAuthenticatedApi(page);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/admin");
   await page.getByRole("button", { name: "moon" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
-  await page.getByText("EN", { exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Users", exact: true })).toBeVisible();
-  for (const name of ["Conversations", "AI Runs", "Knowledge Base"]) {
+  expect(await page.locator(".admin-page").evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(23, 24, 29)");
+  await expect(page.getByText("EN", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Người dùng", exact: true })).toBeVisible();
+  for (const name of ["Hội thoại", "Lượt chạy AI", "Kho tri thức"]) {
     await page.getByRole("navigation").getByRole("button", { name, exact: true }).click();
     await expect(page.getByRole("heading", { name, exact: true }).first()).toBeVisible();
     await expect(page.locator(".ant-spin-container")).not.toHaveClass(/ant-spin-blur/);
@@ -74,3 +79,23 @@ test("admin navigation, language and theme remain usable on mobile", async ({ pa
   await expect(page.getByText("travel_chunks").first()).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+for (const appearance of ["pink", "yellow", "green"]) {
+  test(`dark ${appearance} theme colors every surface and ignores a legacy English preference`, async ({ page }) => {
+    await mockAuthenticatedApi(page);
+    await page.addInitScript((palette) => {
+      localStorage.setItem("vta_language", "en");
+      localStorage.setItem("vta_theme_mode", "dark");
+      localStorage.setItem("vta_appearance", palette);
+    }, appearance);
+    await page.route("**/api/v1/conversations?**", route => route.fulfill({ status: 503, json: { detail: "Dịch vụ đang tạm thời gián đoạn." } }));
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("lang", "vi");
+    await expect(page.getByRole("alert")).toHaveText("Dịch vụ đang tạm thời gián đoạn.");
+    const colors = await page.evaluate(() => {
+      const root = getComputedStyle(document.documentElement);
+      return ["--bg-primary", "--bg-secondary", "--bg-tertiary"].map(name => root.getPropertyValue(name).trim());
+    });
+    expect(colors).toEqual(["#17181d", "#222329", "#2b2d34"]);
+  });
+}

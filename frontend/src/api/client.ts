@@ -1,4 +1,5 @@
 import { SseParser } from "./sse";
+import { localizeNotification } from "../locale/notifications";
 import type {
   AdminAgentRunPage,
   AdminConversationDetail,
@@ -23,7 +24,7 @@ export type StoredSession = Pick<AuthResponse, "access_token" | "refresh_token" 
 
 export class ApiError extends Error {
   constructor(public status: number, message: string, public retryAfter?: number) {
-    super(message);
+    super(localizeNotification(message));
   }
 }
 

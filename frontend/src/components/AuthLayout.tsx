@@ -1,21 +1,14 @@
 import type { ReactNode } from "react";
 import { GlobalOutlined, MoonOutlined, SunOutlined } from "@ant-design/icons";
-import { Button, Segmented } from "antd";
+import { Button } from "antd";
 import { useAppearance } from "../appearance/AppearanceProvider";
 import { useLocale } from "../locale/LocaleProvider";
 
 export function AuthLayout({ children }: { children: ReactNode }) {
-  const { language, setLanguage, t } = useLocale();
+  const { t } = useLocale();
   const { resolvedMode, setMode } = useAppearance();
   return <main className="auth-page">
     <div className="auth-utilities">
-      <Segmented
-        size="small"
-        aria-label={t("Ngôn ngữ", "Language")}
-        value={language}
-        onChange={(value) => setLanguage(value as "vi" | "en")}
-        options={[{ label: "VI", value: "vi" }, { label: "EN", value: "en" }]}
-      />
       <Button
         type="text"
         shape="circle"

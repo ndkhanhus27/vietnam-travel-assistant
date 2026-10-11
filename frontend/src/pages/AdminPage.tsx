@@ -4,7 +4,7 @@ import {
   BookOutlined, CommentOutlined, MenuOutlined, MoonOutlined, PlusOutlined,
   ReloadOutlined, RobotOutlined, SearchOutlined, SunOutlined, TeamOutlined,
 } from "@ant-design/icons";
-import { Button, Empty, Input, Pagination, Segmented, Select, Spin, Switch, Tooltip } from "antd";
+import { Button, Empty, Input, Pagination, Select, Spin, Switch, Tooltip } from "antd";
 import { api, ApiError } from "../api/client";
 import type {
   AdminAgentRun, AdminAgentRunPage, AdminConversation, AdminConversationDetail,
@@ -13,6 +13,7 @@ import type {
 import { useAppearance } from "../appearance/AppearanceProvider";
 import { useAuth } from "../auth/AuthProvider";
 import { useLocale } from "../locale/LocaleProvider";
+import { localizeNotification } from "../locale/notifications";
 
 type View = "users" | "conversations" | "runs" | "knowledge";
 type Translate = (vi: string, en: string) => string;
@@ -20,7 +21,7 @@ const PAGE_SIZE = 20;
 
 export function AdminPage() {
   const { user } = useAuth();
-  const { language, setLanguage, t } = useLocale();
+  const { language, t } = useLocale();
   const { resolvedMode, setMode } = useAppearance();
   const [view, setView] = useState<View>("users");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
@@ -127,13 +128,12 @@ export function AdminPage() {
       <header className="admin-header">
         <div><h1>{t(currentNav.vi, currentNav.en)}</h1><p>{t(...descriptions[view])}</p></div>
         <div className="admin-header-actions">
-          <Segmented size="small" value={language} onChange={(value) => setLanguage(value as "vi" | "en")} options={[{ label: "VI", value: "vi" }, { label: "EN", value: "en" }]} />
           <Tooltip title={resolvedMode === "dark" ? t("Chế độ sáng", "Light mode") : t("Chế độ tối", "Dark mode")}><Button shape="circle" icon={resolvedMode === "dark" ? <SunOutlined /> : <MoonOutlined />} onClick={() => setMode(resolvedMode === "dark" ? "light" : "dark")} /></Tooltip>
           <Button icon={<ReloadOutlined />} onClick={() => void load()}>{t("Làm mới", "Refresh")}</Button>
         </div>
       </header>
 
-      {error && <div className="inline-error" role="alert">{error}</div>}
+      {error && <div className="inline-error" role="alert">{localizeNotification(error)}</div>}
       <Spin spinning={loading}>
         {view === "users" && overview && <AdminMetrics items={[
           [t("Tổng người dùng", "Total users"), overview.total_users],
