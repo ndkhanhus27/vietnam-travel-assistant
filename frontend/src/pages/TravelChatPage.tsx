@@ -9,38 +9,25 @@ import { appearanceOptions, useAppearance } from "../appearance/AppearanceProvid
 import { MarkdownLite } from "../components/MarkdownLite";
 import { Modal } from "../components/Modal";
 import { AccountSecurity } from "../components/AccountSecurity";
+import { Button, Segmented } from "antd";
+import { useLocale } from "../locale/LocaleProvider";
 import {
   ArchiveIcon, ChatIcon, CheckIcon, EditIcon, ExternalIcon, LogoutIcon, MenuIcon,
   MoreIcon, PlusIcon, SendIcon, SettingsIcon, TrashIcon, UsersIcon, WarningIcon,
 } from "../components/Icons";
 
-const suggestions = [
-  "Lên lịch trình khám phá thiên nhiên Đà Lạt trong 3 ngày",
-  "Gợi ý điểm đến phù hợp cho chuyến đi hai người",
-  "So sánh Huế và Hội An cho kỳ nghỉ ngắn ngày",
-  "Ngày mai Đà Nẵng có mưa không?",
-];
+type Translate = (vi: string, en: string) => string;
 
-const progressLabels: Record<AgentProgressStage, string> = {
-  planning: "Đang phân tích yêu cầu",
-  retrieving: "Đang tìm thông tin du lịch",
-  validating: "Đang kiểm tra nguồn",
-  reasoning: "Đang tổng hợp thông tin",
-  generating: "Đang soạn câu trả lời",
-};
+function progressLabel(stage: AgentProgressStage, t: Translate) {
+  return ({ planning: t("Đang phân tích yêu cầu", "Analyzing your request"), retrieving: t("Đang tìm thông tin du lịch", "Finding travel information"), validating: t("Đang kiểm tra nguồn", "Checking sources"), reasoning: t("Đang tổng hợp thông tin", "Putting the answer together"), generating: t("Đang soạn câu trả lời", "Writing the answer") } as Record<AgentProgressStage, string>)[stage];
+}
 
-const toolLabels: Record<string, string> = {
-  weather: "Đang kiểm tra thời tiết",
-  search_travel_knowledge: "Đang tra cứu thông tin du lịch",
-  web_search: "Đang tìm thông tin mới nhất",
-  routing: "Đang tính đường đi",
-  map_location: "Đang xác định địa điểm",
-  budget_calculator: "Đang ước tính chi phí",
-  distance_matrix: "Đang so sánh khoảng cách",
-};
+function toolLabel(tool: string, t: Translate) {
+  return ({ weather: t("Đang kiểm tra thời tiết", "Checking the weather"), search_travel_knowledge: t("Đang tra cứu thông tin du lịch", "Searching travel knowledge"), web_search: t("Đang tìm thông tin mới nhất", "Finding current information"), routing: t("Đang tính đường đi", "Calculating the route"), map_location: t("Đang xác định địa điểm", "Locating the destination"), budget_calculator: t("Đang ước tính chi phí", "Estimating the budget"), distance_matrix: t("Đang so sánh khoảng cách", "Comparing distances") } as Record<string, string>)[tool] || t("Đang thu thập thông tin du lịch", "Gathering travel information");
+}
 
-function titleOf(conversation: ConversationResponse) {
-  return conversation.title || "Cuộc trò chuyện mới";
+function titleOf(conversation: ConversationResponse, fallback = "Cuộc trò chuyện mới") {
+  return conversation.title || fallback;
 }
 
 function groupConversations(conversations: ConversationResponse[]) {
@@ -72,6 +59,7 @@ export function TravelChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
   const { user, logout, updateUser } = useAuth();
+  const { t } = useLocale();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopCollapsed, setDesktopCollapsed] = useState(false);
   const [conversations, setConversations] = useState<ConversationResponse[]>([]);
@@ -116,10 +104,10 @@ export function TravelChatPage() {
   useEffect(() => {
     let active = true;
     setListLoading(true);
-    loadConversations().catch((cause) => active && handleApiError(cause, "Không thể tải danh sách cuộc trò chuyện."))
+    loadConversations().catch((cause) => active && handleApiError(cause, t("Không thể tải danh sách cuộc trò chuyện.", "Could not load conversations.")))
       .finally(() => active && setListLoading(false));
     return () => { active = false; };
-  }, [handleApiError, loadConversations]);
+  }, [handleApiError, loadConversations, t]);
 
   const loadHistory = useCallback(async (id: string) => {
     setHistoryLoading(true);
@@ -132,11 +120,11 @@ export function TravelChatPage() {
         setConversations((current) => current.filter((item) => item.id !== id));
         setMessages([]);
         navigate("/", { replace: true });
-      } else handleApiError(cause, "Không thể tải lịch sử trò chuyện.");
+      } else handleApiError(cause, t("Không thể tải lịch sử trò chuyện.", "Could not load conversation history."));
     } finally {
       setHistoryLoading(false);
     }
-  }, [handleApiError, navigate]);
+  }, [handleApiError, navigate, t]);
 
   useEffect(() => {
     setActiveMenu(null);
@@ -155,7 +143,7 @@ export function TravelChatPage() {
           setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]);
         } catch (cause) {
           if (cause instanceof ApiError && cause.status === 404) navigate("/", { replace: true });
-          else handleApiError(cause, "Không thể mở cuộc trò chuyện này.");
+          else handleApiError(cause, t("Không thể mở cuộc trò chuyện này.", "Could not open this conversation."));
           return;
         }
       }
@@ -183,7 +171,7 @@ export function TravelChatPage() {
       navigate(`/c/${conversation.id}`);
       setMobileSidebarOpen(false);
     } catch (cause) {
-      handleApiError(cause, "Không thể tạo cuộc trò chuyện mới.");
+      handleApiError(cause, t("Không thể tạo cuộc trò chuyện mới.", "Could not create a new conversation."));
     }
   }
 
@@ -208,14 +196,14 @@ export function TravelChatPage() {
       };
       setMessages((current) => [...current, optimistic]);
       setDraft("");
-      setProgress(progressLabels.planning);
+      setProgress(progressLabel("planning", t));
       let streamError: string | null = null;
 
       await api.streamMessage(id, value, (event) => {
         if (event.event === "connected") return;
-        if (event.event === "stage") setProgress(progressLabels[event.data.stage]);
-        if (event.event === "tool" && event.data.status === "started") setProgress(toolLabels[event.data.tool] || "Đang thu thập thông tin du lịch");
-        if (event.event === "error") streamError = event.data.message || "Trợ lý chưa thể hoàn tất yêu cầu này.";
+        if (event.event === "stage") setProgress(progressLabel(event.data.stage, t));
+        if (event.event === "tool" && event.data.status === "started") setProgress(toolLabel(event.data.tool, t));
+        if (event.event === "error") streamError = event.data.message || t("Trợ lý chưa thể hoàn tất yêu cầu này.", "The assistant could not complete this request.");
         if (event.event === "completed") {
           const result = event.data;
           setMessages((current) => reconcileCompletedMessages(current, optimisticId, result));
@@ -229,7 +217,7 @@ export function TravelChatPage() {
         await loadConversations();
       }
     } catch (cause) {
-      handleApiError(cause, "Kết nối bị gián đoạn. Lịch sử trò chuyện đã được cập nhật lại.");
+      handleApiError(cause, t("Kết nối bị gián đoạn. Lịch sử trò chuyện đã được cập nhật lại.", "The connection was interrupted. Conversation history has been refreshed."));
       if (id) await loadHistory(id);
     } finally {
       setProgress(null);
@@ -244,7 +232,7 @@ export function TravelChatPage() {
       const updated = await api.updateConversation(renameTarget.id, { title: title.trim() });
       setConversations((current) => current.map((item) => item.id === updated.id ? updated : item));
       setRenameTarget(null);
-    } catch (cause) { handleApiError(cause, "Không thể đổi tên cuộc trò chuyện."); }
+    } catch (cause) { handleApiError(cause, t("Không thể đổi tên cuộc trò chuyện.", "Could not rename the conversation.")); }
   }
 
   async function archiveConversation(id: string, isArchived = true) {
@@ -253,7 +241,7 @@ export function TravelChatPage() {
       setConversations((current) => current.map((item) => item.id === id ? updated : item));
       setActiveMenu(null);
       if (conversationId === id && isArchived) navigate("/");
-    } catch (cause) { handleApiError(cause, "Không thể cập nhật cuộc trò chuyện."); }
+    } catch (cause) { handleApiError(cause, t("Không thể cập nhật cuộc trò chuyện.", "Could not update the conversation.")); }
   }
 
   async function deleteConversation(id: string) {
@@ -262,58 +250,59 @@ export function TravelChatPage() {
       setConversations((current) => current.filter((item) => item.id !== id));
       setDeleteTarget(null);
       if (conversationId === id) { setMessages([]); navigate("/"); }
-    } catch (cause) { handleApiError(cause, "Không thể xoá cuộc trò chuyện."); }
+    } catch (cause) { handleApiError(cause, t("Không thể xoá cuộc trò chuyện.", "Could not delete the conversation.")); }
   }
 
   async function openArchived() {
     setUserMenuOpen(false);
     try { await loadConversations(true); setArchivedOpen(true); }
-    catch (cause) { handleApiError(cause, "Không thể tải các cuộc trò chuyện đã lưu trữ."); }
+    catch (cause) { handleApiError(cause, t("Không thể tải các cuộc trò chuyện đã lưu trữ.", "Could not load archived conversations.")); }
   }
 
-  const displayName = user?.display_name || user?.email || "Tài khoản";
+  const displayName = user?.display_name || user?.email || t("Tài khoản", "Account");
   const initial = displayName.slice(0, 1).toUpperCase();
 
   return (
     <div className={`app-shell ${desktopCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className={`sidebar ${mobileSidebarOpen ? "is-open" : ""}`} aria-label="Lịch sử trò chuyện">
+      <aside className={`sidebar ${mobileSidebarOpen ? "is-open" : ""}`} aria-label={t("Lịch sử trò chuyện", "Conversation history")}>
         <div className="sidebar-head">
           <div className="sidebar-title-row">
             <Link className="brand" to="/"><span className="brand-full">Vietnam Travel Advisor</span><span className="brand-short">VTA</span></Link>
-            <button className="sidebar-toggle-button" onClick={() => { if (window.matchMedia("(max-width: 760px)").matches) setMobileSidebarOpen(false); else setDesktopCollapsed((value) => !value); }} aria-label="Thu gọn hoặc mở rộng thanh bên"><MenuIcon /></button>
+            <button className="sidebar-toggle-button" onClick={() => { if (window.matchMedia("(max-width: 760px)").matches) setMobileSidebarOpen(false); else setDesktopCollapsed((value) => !value); }} aria-label={t("Thu gọn hoặc mở rộng thanh bên", "Collapse or expand sidebar")}><MenuIcon /></button>
           </div>
-          <button className="new-chat-button" onClick={newChat} disabled={sending}><PlusIcon /><span>Cuộc trò chuyện mới</span></button>
+          <button className="new-chat-button" onClick={newChat} disabled={sending}><PlusIcon /><span>{t("Cuộc trò chuyện mới", "New conversation")}</span></button>
         </div>
-        <nav className="conversation-nav" aria-label="Danh sách cuộc trò chuyện">
+        <nav className="conversation-nav" aria-label={t("Danh sách cuộc trò chuyện", "Conversation list")}>
           {listLoading && <div className="history-skeleton"><span /><span /><span /></div>}
-          {!listLoading && !visible.length && <p className="empty-dialog-copy">Chưa có cuộc trò chuyện nào.</p>}
-          <ConversationGroup title="Hôm nay" items={groups.today} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
-          <ConversationGroup title="Trước đó" items={groups.previous} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
+          {!listLoading && !visible.length && <p className="empty-dialog-copy">{t("Chưa có cuộc trò chuyện nào.", "No conversations yet.")}</p>}
+          <ConversationGroup title={t("Hôm nay", "Today")} items={groups.today} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
+          <ConversationGroup title={t("Trước đó", "Earlier")} items={groups.previous} activeId={conversationId} activeMenu={activeMenu} setActiveMenu={setActiveMenu} setRenameTarget={setRenameTarget} setDeleteTarget={setDeleteTarget} archiveConversation={archiveConversation} />
         </nav>
         <div className="sidebar-user">
           <button className="user-row" onClick={() => setUserMenuOpen((value) => !value)} aria-expanded={userMenuOpen}><span className="avatar">{initial}</span><span>{displayName}</span><MoreIcon className="user-more" /></button>
           {userMenuOpen && <div className="user-menu">
-            <button onClick={() => { setSettingsOpen(true); setUserMenuOpen(false); }}><SettingsIcon />Cài đặt</button>
-            <button onClick={openArchived}><ArchiveIcon />Cuộc trò chuyện đã lưu trữ</button>
-            {user?.is_admin && <button onClick={() => navigate("/admin")}><UsersIcon />Trang quản trị</button>}
-            <button onClick={async () => { try { await logout(); } finally { navigate("/login"); } }}><LogoutIcon />Đăng xuất</button>
+            <button onClick={() => { setSettingsOpen(true); setUserMenuOpen(false); }}><SettingsIcon />{t("Cài đặt", "Settings")}</button>
+            <button onClick={openArchived}><ArchiveIcon />{t("Cuộc trò chuyện đã lưu trữ", "Archived conversations")}</button>
+            {user?.is_admin && <button onClick={() => navigate("/admin")}><UsersIcon />{t("Trang quản trị", "Admin console")}</button>}
+            <button onClick={async () => { try { await logout(); } finally { navigate("/login"); } }}><LogoutIcon />{t("Đăng xuất", "Sign out")}</button>
           </div>}
         </div>
       </aside>
-      {mobileSidebarOpen && <button className="mobile-backdrop" onClick={() => setMobileSidebarOpen(false)} aria-label="Đóng thanh bên" />}
+      {mobileSidebarOpen && <button className="mobile-backdrop" onClick={() => setMobileSidebarOpen(false)} aria-label={t("Đóng thanh bên", "Close sidebar")} />}
       <main className="chat-main">
-        <header className="mobile-header"><button className="icon-button" onClick={() => setMobileSidebarOpen(true)} aria-label="Mở thanh bên"><MenuIcon /></button><span>Vietnam Travel Advisor</span><span className="mobile-header-spacer" /></header>
+        <header className="mobile-header"><button className="icon-button" onClick={() => setMobileSidebarOpen(true)} aria-label={t("Mở thanh bên", "Open sidebar")}><MenuIcon /></button><span>Vietnam Travel Advisor</span><span className="mobile-header-spacer" /></header>
+        <header className="desktop-chat-header"><strong>{activeConversation ? titleOf(activeConversation, t("Cuộc trò chuyện mới", "New conversation")) : t("Cuộc trò chuyện mới", "New conversation")}</strong></header>
         {!conversationId ? <EmptyState onSuggestion={send} /> : activeConversation || historyLoading ? (
-          <section className="conversation-view" ref={viewRef} aria-label={activeConversation ? titleOf(activeConversation) : "Cuộc trò chuyện"} onScroll={(event) => { const element = event.currentTarget; stayAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120; }}>
+          <section className="conversation-view" ref={viewRef} aria-label={activeConversation ? titleOf(activeConversation, t("Cuộc trò chuyện mới", "New conversation")) : t("Cuộc trò chuyện", "Conversation")} onScroll={(event) => { const element = event.currentTarget; stayAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120; }}>
             <div className="message-list">
               {historyLoading && !messages.length && <div className="history-skeleton"><span /><span /><span /></div>}
               {messages.map((message) => <MessageView key={message.id} message={message} degraded={degradedIds.has(message.id)} />)}
               {progress && <AgentProgress label={progress} />}
               {pageError && <div className="inline-error" role="alert">{pageError}</div>}
-              {rateLimitSeconds !== null && <div className="inline-error" role="alert">Bạn thao tác quá nhanh. Vui lòng thử lại sau {rateLimitSeconds} giây.</div>}
+              {rateLimitSeconds !== null && <div className="inline-error" role="alert">{t(`Bạn thao tác quá nhanh. Vui lòng thử lại sau ${rateLimitSeconds} giây.`, `Too many requests. Try again in ${rateLimitSeconds} seconds.`)}</div>}
             </div>
           </section>
-        ) : <section className="center-state"><h1>Không tìm thấy cuộc trò chuyện</h1><p>Cuộc trò chuyện này không còn khả dụng.</p><button className="secondary-button" onClick={() => navigate("/")}>Bắt đầu cuộc trò chuyện mới</button></section>}
+        ) : <section className="center-state"><h1>{t("Không tìm thấy cuộc trò chuyện", "Conversation not found")}</h1><p>{t("Cuộc trò chuyện này không còn khả dụng.", "This conversation is no longer available.")}</p><Button onClick={() => navigate("/")}>{t("Bắt đầu cuộc trò chuyện mới", "Start a new conversation")}</Button></section>}
         <Composer draft={draft} setDraft={setDraft} onSubmit={(event) => { event.preventDefault(); void send(); }} loading={sending} blocked={rateLimitSeconds !== null} textareaRef={textareaRef} />
       </main>
       {renameTarget && <RenameDialog conversation={renameTarget} onClose={() => setRenameTarget(null)} onSave={renameConversation} />}
@@ -330,11 +319,12 @@ function ConversationGroup(props: { title: string; items: ConversationResponse[]
 }
 
 function ConversationRow({ item, active, menuOpen, setActiveMenu, setRenameTarget, setDeleteTarget, archiveConversation }: { item: ConversationResponse; active: boolean; menuOpen: boolean; setActiveMenu: (id: string | null) => void; setRenameTarget: (item: ConversationResponse) => void; setDeleteTarget: (item: ConversationResponse) => void; archiveConversation: (id: string) => void }) {
+  const { t } = useLocale();
   const buttonRef = useRef<HTMLButtonElement>(null);
   return <div className={`conversation-row ${active ? "is-active" : ""}`}>
-    <Link to={`/c/${item.id}`}><ChatIcon /><span>{titleOf(item)}</span></Link>
-    <button ref={buttonRef} className="row-menu-button" onClick={() => setActiveMenu(menuOpen ? null : item.id)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label={`Tuỳ chọn cho ${titleOf(item)}`}><MoreIcon /></button>
-    {menuOpen && <ConversationPopover anchorRef={buttonRef} onClose={() => setActiveMenu(null)}><button role="menuitem" onClick={() => { setRenameTarget(item); setActiveMenu(null); }}><EditIcon />Đổi tên</button><button role="menuitem" onClick={() => archiveConversation(item.id)}><ArchiveIcon />Lưu trữ</button><button role="menuitem" className="danger-text" onClick={() => { setDeleteTarget(item); setActiveMenu(null); }}><TrashIcon />Xoá</button></ConversationPopover>}
+    <Link to={`/c/${item.id}`}><ChatIcon /><span>{titleOf(item, t("Cuộc trò chuyện mới", "New conversation"))}</span></Link>
+    <button ref={buttonRef} className="row-menu-button" onClick={() => setActiveMenu(menuOpen ? null : item.id)} aria-expanded={menuOpen} aria-haspopup="menu" aria-label={t(`Tuỳ chọn cho ${titleOf(item)}`, `Options for ${titleOf(item, "new conversation")}`)}><MoreIcon /></button>
+    {menuOpen && <ConversationPopover anchorRef={buttonRef} onClose={() => setActiveMenu(null)}><button role="menuitem" onClick={() => { setRenameTarget(item); setActiveMenu(null); }}><EditIcon />{t("Đổi tên", "Rename")}</button><button role="menuitem" onClick={() => archiveConversation(item.id)}><ArchiveIcon />{t("Lưu trữ", "Archive")}</button><button role="menuitem" className="danger-text" onClick={() => { setDeleteTarget(item); setActiveMenu(null); }}><TrashIcon />{t("Xoá", "Delete")}</button></ConversationPopover>}
   </div>;
 }
 
@@ -365,45 +355,57 @@ function ConversationPopover({ anchorRef, onClose, children }: { anchorRef: RefO
 }
 
 function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) {
-  return <section className="empty-state"><div className="empty-copy"><div className="empty-kicker">Vietnam Travel Advisor</div><h1>Bạn muốn khám phá nơi nào ở Việt Nam?</h1><p>Hỏi về điểm đến, lịch trình, thời tiết, đường đi, chi phí hoặc so sánh các lựa chọn du lịch.</p></div><div className="suggestions" aria-label="Câu hỏi gợi ý">{suggestions.map((item) => <button key={item} onClick={() => onSuggestion(item)}>{item}</button>)}</div></section>;
+  const { t } = useLocale();
+  const suggestions = [
+    [t("Gợi ý điểm đến", "Destination ideas"), t("Cuối tháng 11 nên đi đâu ở miền Bắc?", "Where should I go in northern Vietnam in late November?")],
+    [t("So sánh", "Compare"), t("Đà Nẵng và Nha Trang nơi nào hợp gia đình hơn?", "Which is better for families: Da Nang or Nha Trang?")],
+    [t("Lịch trình", "Itinerary"), t("Lên lịch trình Đà Lạt 3 ngày nhẹ nhàng.", "Plan a relaxed three-day trip to Da Lat.")],
+    [t("Ngân sách", "Budget"), t("5 triệu cho 2 người đi Huế 3 ngày có đủ không?", "Is 5 million VND enough for two people in Hue for three days?")],
+  ];
+  return <section className="empty-state"><div className="empty-copy"><div className="empty-kicker">V</div><h1>{t("Bạn muốn khám phá đâu hôm nay?", "Where would you like to explore today?")}</h1><p>{t("Hỏi về điểm đến, so sánh lựa chọn, thời tiết, chi phí hoặc nhờ mình gợi ý một lịch trình.", "Ask about destinations, compare options, check weather and costs, or build an itinerary.")}</p></div><div className="suggestions" aria-label={t("Câu hỏi gợi ý", "Suggested questions")}>{suggestions.map(([label, question]) => <button key={question} onClick={() => onSuggestion(question)}><strong>{label}</strong><span>{question}</span></button>)}</div></section>;
 }
 
 export function MessageView({ message, degraded }: { message: MessageResponse; degraded: boolean }) {
-  if (message.role === "user") return <article className="user-message"><div className="message-meta">Bạn</div><p>{message.content}</p></article>;
-  return <article className="assistant-message"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{message.warnings?.[0] || "Một số thông tin chưa thể được kiểm chứng đầy đủ."}</div></div> : null}</article>;
+  const { t } = useLocale();
+  if (message.role === "user") return <article className="user-message"><div className="message-meta">{t("Bạn", "You")}</div><p>{message.content}</p></article>;
+  return <article className="assistant-message"><div className="assistant-mark">AI</div><div className="assistant-bubble"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{message.warnings?.[0] || t("Một số thông tin chưa thể được kiểm chứng đầy đủ.", "Some information could not be fully verified.")}</div></div> : null}</div></article>;
 }
 
 function CitationList({ citations }: { citations: CitationResponse[] }) {
-  return <section className="citations" aria-label="Nguồn"><h3>Nguồn</h3><div className="citation-list">{citations.map((citation) => citation.url ? <a key={citation.citation_id} href={citation.url} target="_blank" rel="noreferrer"><span>[{citation.citation_id}]</span>{citation.title}<ExternalIcon /></a> : <div className="citation-static" key={citation.citation_id}><span>[{citation.citation_id}]</span>{citation.title}</div>)}</div></section>;
+  const { t } = useLocale();
+  return <section className="citations" aria-label={t("Nguồn", "Sources")}><h3>{t("Nguồn tham khảo", "Sources")}</h3><div className="citation-list">{citations.map((citation) => citation.url ? <a key={citation.citation_id} href={citation.url} target="_blank" rel="noreferrer"><span>[{citation.citation_id}]</span>{citation.title}<ExternalIcon /></a> : <div className="citation-static" key={citation.citation_id}><span>[{citation.citation_id}]</span>{citation.title}</div>)}</div></section>;
 }
 
 function AgentProgress({ label }: { label: string }) { return <div className="agent-progress" role="status" aria-live="polite"><span className="progress-dot" /><span>{label}...</span></div>; }
 
 function Composer(props: { draft: string; setDraft: (value: string) => void; onSubmit: (event: FormEvent) => void; loading: boolean; blocked: boolean; textareaRef: RefObject<HTMLTextAreaElement | null> }) {
+  const { language, t } = useLocale();
   useEffect(() => {
     const textarea = props.textareaRef.current;
     if (!textarea) return;
     textarea.style.height = "auto";
     textarea.style.height = `${Math.min(textarea.scrollHeight, 144)}px`;
   }, [props.draft, props.textareaRef]);
-  return <form className="composer-wrap" onSubmit={props.onSubmit}><div className="composer"><textarea ref={props.textareaRef} value={props.draft} onChange={(event) => props.setDraft(event.target.value.slice(0, 10000))} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Bạn muốn hỏi gì về chuyến đi?" rows={1} aria-label="Nội dung tin nhắn" disabled={props.loading || props.blocked} /><button className="send-button" disabled={!props.draft.trim() || props.loading || props.blocked} aria-label="Gửi"><SendIcon /></button></div><div className="character-count">{props.draft.length.toLocaleString("vi-VN")}/10.000</div></form>;
+  return <form className="composer-wrap" onSubmit={props.onSubmit}><div className="composer"><textarea ref={props.textareaRef} value={props.draft} onChange={(event) => props.setDraft(event.target.value.slice(0, 10000))} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder={t("Bạn muốn hỏi gì về chuyến đi?", "What would you like to know about your trip?")} rows={1} aria-label={t("Nội dung tin nhắn", "Message")} disabled={props.loading || props.blocked} /><button className="send-button" disabled={!props.draft.trim() || props.loading || props.blocked} aria-label={t("Gửi", "Send")}><SendIcon /></button></div><div className="character-count">{props.draft.length.toLocaleString(language === "vi" ? "vi-VN" : "en-US")}/10,000</div></form>;
 }
 
 function RenameDialog({ conversation, onClose, onSave }: { conversation: ConversationResponse; onClose: () => void; onSave: (value: string) => void }) {
-  const [value, setValue] = useState(titleOf(conversation));
-  return <Modal title="Đổi tên cuộc trò chuyện" onClose={onClose}><form className="dialog-form" onSubmit={(event) => { event.preventDefault(); onSave(value); }}><label><span>Tên cuộc trò chuyện</span><input value={value} maxLength={255} onChange={(event) => setValue(event.target.value)} autoFocus /></label><div className="dialog-actions"><button type="button" className="secondary-button" onClick={onClose}>Huỷ</button><button className="primary-button" disabled={!value.trim()}>Lưu</button></div></form></Modal>;
+  const { t } = useLocale();
+  const [value, setValue] = useState(titleOf(conversation, t("Cuộc trò chuyện mới", "New conversation")));
+  return <Modal title={t("Đổi tên cuộc trò chuyện", "Rename conversation")} onClose={onClose}><form className="dialog-form" onSubmit={(event) => { event.preventDefault(); onSave(value); }}><label><span>{t("Tên cuộc trò chuyện", "Conversation name")}</span><input value={value} maxLength={255} onChange={(event) => setValue(event.target.value)} autoFocus /></label><div className="dialog-actions"><Button onClick={onClose}>{t("Huỷ", "Cancel")}</Button><Button htmlType="submit" type="primary" disabled={!value.trim()}>{t("Lưu", "Save")}</Button></div></form></Modal>;
 }
 
-function DeleteDialog({ conversation, onClose, onDelete }: { conversation: ConversationResponse; onClose: () => void; onDelete: () => void }) { return <Modal title="Xoá cuộc trò chuyện?" onClose={onClose}><p className="dialog-copy">“{titleOf(conversation)}” sẽ bị xoá vĩnh viễn. Bạn không thể hoàn tác thao tác này.</p><div className="dialog-actions"><button className="secondary-button" onClick={onClose}>Huỷ</button><button className="danger-button" onClick={onDelete}>Xoá</button></div></Modal>; }
+function DeleteDialog({ conversation, onClose, onDelete }: { conversation: ConversationResponse; onClose: () => void; onDelete: () => void }) { const { t } = useLocale(); return <Modal title={t("Xoá cuộc trò chuyện?", "Delete conversation?")} onClose={onClose}><p className="dialog-copy">{t(`“${titleOf(conversation)}” sẽ bị xoá vĩnh viễn. Bạn không thể hoàn tác thao tác này.`, `“${titleOf(conversation, "New conversation")}” will be permanently deleted. This cannot be undone.`)}</p><div className="dialog-actions"><Button onClick={onClose}>{t("Huỷ", "Cancel")}</Button><Button danger type="primary" onClick={onDelete}>{t("Xoá", "Delete")}</Button></div></Modal>; }
 
-function ArchivedDialog({ conversations, onClose, onUnarchive, onDelete }: { conversations: ConversationResponse[]; onClose: () => void; onUnarchive: (id: string) => void; onDelete: (item: ConversationResponse) => void }) { return <Modal title="Cuộc trò chuyện đã lưu trữ" onClose={onClose}><div className="archived-list">{!conversations.length && <p className="empty-dialog-copy">Chưa có cuộc trò chuyện nào được lưu trữ.</p>}{conversations.map((item) => <div className="archived-row" key={item.id}><span>{titleOf(item)}</span><div><button onClick={() => onUnarchive(item.id)}>Bỏ lưu trữ</button><button className="danger-text" onClick={() => onDelete(item)}>Xoá</button></div></div>)}</div></Modal>; }
+function ArchivedDialog({ conversations, onClose, onUnarchive, onDelete }: { conversations: ConversationResponse[]; onClose: () => void; onUnarchive: (id: string) => void; onDelete: (item: ConversationResponse) => void }) { const { t } = useLocale(); return <Modal title={t("Cuộc trò chuyện đã lưu trữ", "Archived conversations")} onClose={onClose}><div className="archived-list">{!conversations.length && <p className="empty-dialog-copy">{t("Chưa có cuộc trò chuyện nào được lưu trữ.", "No archived conversations.")}</p>}{conversations.map((item) => <div className="archived-row" key={item.id}><span>{titleOf(item, t("Cuộc trò chuyện mới", "New conversation"))}</span><div><button onClick={() => onUnarchive(item.id)}>{t("Bỏ lưu trữ", "Unarchive")}</button><button className="danger-text" onClick={() => onDelete(item)}>{t("Xoá", "Delete")}</button></div></div>)}</div></Modal>; }
 
 function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: UserResponse; onClose: () => void; onUserUpdated: (user: UserResponse) => void; onLogoutAll: () => Promise<void> }) {
   const [tab, setTab] = useState<"appearance" | "account">("appearance");
   const [name, setName] = useState(user.display_name || "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const { appearance, setAppearance } = useAppearance();
+  const { appearance, setAppearance, mode, setMode } = useAppearance();
+  const { language, setLanguage, t } = useLocale();
 
   async function saveProfile(event: FormEvent) {
     event.preventDefault();
@@ -414,29 +416,31 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
       onUserUpdated(updated);
       setName(updated.display_name || "");
     } catch (cause) {
-      setError(cause instanceof ApiError && cause.status !== 422 ? cause.message : "Không thể cập nhật thông tin tài khoản.");
+      setError(cause instanceof ApiError && cause.status !== 422 ? cause.message : t("Không thể cập nhật thông tin tài khoản.", "Could not update your account."));
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <Modal title="Cài đặt" onClose={onClose} className="settings-modal">
+    <Modal title={t("Cài đặt", "Settings")} onClose={onClose} className="settings-modal">
       <div className="settings-layout">
-        <nav className="settings-tabs" aria-label="Các mục cài đặt">
-          <button className={tab === "appearance" ? "is-active" : ""} onClick={() => setTab("appearance")}>Giao diện</button>
-          <button className={tab === "account" ? "is-active" : ""} onClick={() => setTab("account")}>Tài khoản</button>
+        <nav className="settings-tabs" aria-label={t("Các mục cài đặt", "Settings sections")}>
+          <button className={tab === "appearance" ? "is-active" : ""} onClick={() => setTab("appearance")}>{t("Giao diện", "Appearance")}</button>
+          <button className={tab === "account" ? "is-active" : ""} onClick={() => setTab("account")}>{t("Tài khoản", "Account")}</button>
         </nav>
         <div className="settings-content">
           {tab === "appearance" ? (
             <section>
-              <h3>Giao diện</h3>
-              <p>Chọn màu nền bạn muốn sử dụng trong ứng dụng.</p>
+              <h3>{t("Giao diện", "Appearance")}</h3>
+              <p>{t("Chọn ngôn ngữ, chế độ hiển thị và màu nền.", "Choose your language, display mode, and base color.")}</p>
+              <div className="setting-control"><span>{t("Ngôn ngữ", "Language")}</span><Segmented value={language} onChange={(value) => setLanguage(value as "vi" | "en")} options={[{ label: "Tiếng Việt", value: "vi" }, { label: "English", value: "en" }]} /></div>
+              <div className="setting-control"><span>{t("Chế độ", "Mode")}</span><Segmented value={mode} onChange={(value) => setMode(value as "light" | "dark" | "system")} options={[{ label: t("Sáng", "Light"), value: "light" }, { label: t("Tối", "Dark"), value: "dark" }, { label: t("Hệ thống", "System"), value: "system" }]} /></div>
               <div className="appearance-options">
                 {appearanceOptions.map((option) => (
                   <button key={option.value} className={appearance === option.value ? "is-selected" : ""} onClick={() => setAppearance(option.value)}>
                     <span className="appearance-swatch" style={{ background: option.swatch }} />
-                    <span>{option.label}</span>
+                    <span>{option.value === "pink" ? t("Hồng san hô", "Coral") : option.value === "yellow" ? t("Vàng", "Yellow") : t("Xanh lá", "Green")}</span>
                     {appearance === option.value && <CheckIcon />}
                   </button>
                 ))}
@@ -444,20 +448,20 @@ function SettingsDialog({ user, onClose, onUserUpdated, onLogoutAll }: { user: U
             </section>
           ) : (
             <section>
-              <h3>Tài khoản</h3>
+              <h3>{t("Tài khoản", "Account")}</h3>
               <div className="account-summary">
                 <span className="avatar account-avatar">{(user.display_name || user.email).slice(0, 1).toUpperCase()}</span>
-                <div><strong>{user.display_name || "Chưa đặt tên"}</strong><span>{user.email}</span></div>
+                <div><strong>{user.display_name || t("Chưa đặt tên", "Unnamed")}</strong><span>{user.email}</span></div>
               </div>
               <form className="profile-form" onSubmit={saveProfile}>
-                <label><span>Tên hiển thị</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>
+                <label><span>{t("Tên hiển thị", "Display name")}</span><input value={name} maxLength={120} onChange={(event) => setName(event.target.value)} /></label>
                 {error && <div className="form-error" role="alert">{error}</div>}
-                <button className="primary-button" disabled={saving}>{saving ? "Đang lưu..." : "Lưu thay đổi"}</button>
+                <Button htmlType="submit" type="primary" loading={saving}>{t("Lưu thay đổi", "Save changes")}</Button>
               </form>
               <AccountSecurity email={user.email} />
               <div className="account-actions">
-                <div><strong>Đăng xuất khỏi mọi thiết bị</strong><span>Thu hồi tất cả phiên đăng nhập đang hoạt động của tài khoản này.</span></div>
-                <button className="secondary-button" onClick={() => void onLogoutAll()}>Đăng xuất tất cả</button>
+                <div><strong>{t("Đăng xuất khỏi mọi thiết bị", "Sign out everywhere")}</strong><span>{t("Thu hồi tất cả phiên đăng nhập đang hoạt động của tài khoản này.", "Revoke every active session for this account.")}</span></div>
+                <Button onClick={() => void onLogoutAll()}>{t("Đăng xuất tất cả", "Sign out all")}</Button>
               </div>
             </section>
           )}

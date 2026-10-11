@@ -1,6 +1,9 @@
 import { SseParser } from "./sse";
 import type {
   AdminAgentRunPage,
+  AdminConversationDetail,
+  AdminConversationPage,
+  AdminKnowledge,
   AdminOverview,
   AdminUser,
   AdminUserPage,
@@ -225,10 +228,13 @@ export const api = {
     }
   },
   adminOverview: () => request<AdminOverview>("/admin/overview"),
-  adminUsers: (limit = 25, offset = 0) => request<AdminUserPage>(`/admin/users?limit=${limit}&offset=${offset}`),
+  adminUsers: (limit = 25, offset = 0, filters: Record<string, string> = {}) => request<AdminUserPage>(`/admin/users?${new URLSearchParams({ limit: String(limit), offset: String(offset), ...filters })}`),
   updateAdminUser: (id: string, isActive: boolean) => request<AdminUser>(`/admin/users/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ is_active: isActive }),
   }),
-  adminAgentRuns: (limit = 25, offset = 0) => request<AdminAgentRunPage>(`/admin/agent-runs?limit=${limit}&offset=${offset}`),
+  adminAgentRuns: (limit = 25, offset = 0, filters: Record<string, string> = {}) => request<AdminAgentRunPage>(`/admin/agent-runs?${new URLSearchParams({ limit: String(limit), offset: String(offset), ...filters })}`),
+  adminConversations: (limit = 25, offset = 0, filters: Record<string, string> = {}) => request<AdminConversationPage>(`/admin/conversations?${new URLSearchParams({ limit: String(limit), offset: String(offset), ...filters })}`),
+  adminConversation: (id: string) => request<AdminConversationDetail>(`/admin/conversations/${id}`),
+  adminKnowledge: () => request<AdminKnowledge>("/admin/knowledge"),
 };

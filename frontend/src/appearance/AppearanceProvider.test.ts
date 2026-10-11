@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loadAppearance, saveAppearance } from "./AppearanceProvider";
+import { loadAppearance, loadThemeMode, saveAppearance } from "./AppearanceProvider";
 
 describe("appearance persistence", () => {
   it("loads each supported appearance and falls back safely", () => {
@@ -14,5 +14,11 @@ describe("appearance persistence", () => {
       setItem: (key, value) => values.set(key, value),
     });
     expect(values.get("vta_appearance")).toBe("green");
+  });
+
+  it("loads light, dark, and system display modes safely", () => {
+    expect(loadThemeMode({ getItem: () => "dark" })).toBe("dark");
+    expect(loadThemeMode({ getItem: () => "system" })).toBe("system");
+    expect(loadThemeMode({ getItem: () => "unknown" })).toBe("light");
   });
 });

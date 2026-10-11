@@ -357,6 +357,84 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("node", payload)
         self.assertNotIn("chain_of_thought", payload)
 
+    async def test_admin_conversation_and_filter_endpoints_use_real_data(self):
+        admin_id, owner_id = await self._create_users("admin-console")
+        async with AsyncSessionFactory.begin() as session:
+            admin = await session.get(User, admin_id)
+            admin.is_admin = True
+        conversation_id = await self._create_conversation(owner_id)
+        await self.client.post(
+            f"/api/v1/conversations/{conversation_id}/messages",
+            headers=self._user_headers(owner_id),
+            json={"content": "Lap lich Da Lat 3 ngay"},
+        )
+        headers = self._user_headers(admin_id)
+
+        users = await self.client.get(
+            "/api/v1/admin/users",
+            headers=headers,
+            params={"q": self.email_prefix, "role": "user", "status": "active"},
+        )
+        conversations = await self.client.get(
+            "/api/v1/admin/conversations",
+            headers=headers,
+            params={"q": str(conversation_id)},
+        )
+        detail = await self.client.get(
+            f"/api/v1/admin/conversations/{conversation_id}",
+            headers=headers,
+        )
+        runs = await self.client.get(
+            "/api/v1/admin/agent-runs",
+            headers=headers,
+            params={"intent": "ITINERARY", "status": "success"},
+        )
+
+        self.assertEqual(users.status_code, 200)
+        self.assertGreaterEqual(users.json()["total"], 1)
+        self.assertIn("providers", users.json()["items"][0])
+        self.assertEqual(conversations.status_code, 200)
+        self.assertEqual(conversations.json()["total"], 1)
+        self.assertEqual(conversations.json()["items"][0]["message_count"], 2)
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual([message["role"] for message in detail.json()["messages"]], ["user", "assistant"])
+        self.assertEqual(runs.status_code, 200)
+        matching_run = next(
+            item
+            for item in runs.json()["items"]
+            if item["conversation_id"] == str(conversation_id)
+        )
+        self.assertIn("grounded", matching_run)
+        self.assertIn("citation_count", matching_run)
+        self.assertIn("evidence_count", matching_run)
+        self.assertEqual(
+            matching_run["grounded"],
+            matching_run["citation_count"] > 0,
+        )
+        self.assertLessEqual(
+            matching_run["evidence_count"],
+            matching_run["citation_count"],
+        )
+
+    async def test_admin_knowledge_endpoint_degrades_when_qdrant_is_down(self):
+        admin_id, _ = await self._create_users("admin-knowledge")
+        async with AsyncSessionFactory.begin() as session:
+            admin = await session.get(User, admin_id)
+            admin.is_admin = True
+        with patch(
+            "app.api.routes.admin._read_qdrant_status",
+            side_effect=RuntimeError("offline"),
+        ):
+            response = await self.client.get(
+                "/api/v1/admin/knowledge",
+                headers=self._user_headers(admin_id),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["qdrant_status"], "unavailable")
+        self.assertIn("documents", response.json())
+        self.assertIn("entity_candidates", response.json())
+
     async def test_google_link_requires_correct_password_and_preserves_user(self):
         email = self._email("link-proof")
         local = await self._register(email, "SecurePassword123!")

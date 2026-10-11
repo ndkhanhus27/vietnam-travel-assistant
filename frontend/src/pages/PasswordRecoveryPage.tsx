@@ -4,8 +4,11 @@ import { api, ApiError, sessionStore } from "../api/client";
 import { isGmailAddress } from "../auth/emailPolicy";
 import { AuthLayout } from "../components/AuthLayout";
 import { PasswordField } from "../components/PasswordField";
+import { Button } from "antd";
+import { useLocale } from "../locale/LocaleProvider";
 
 export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
+  const { t } = useLocale();
   const location = useLocation();
   const initialEmail = (location.state as { email?: string } | null)?.email || "";
   const [token] = useState(() => {
@@ -29,23 +32,23 @@ export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
     const confirmation = String(form.get("confirm_password") || "");
     setError("");
     setMessage("");
-    if (reset && password !== confirmation) return setError("Mật khẩu xác nhận không khớp.");
+    if (reset && password !== confirmation) return setError(t("Mật khẩu xác nhận không khớp.", "The passwords do not match."));
     const email = String(form.get("email") || "").trim();
-    if (!reset && !isGmailAddress(email)) return setError("Chỉ hỗ trợ địa chỉ @gmail.com.");
+    if (!reset && !isGmailAddress(email)) return setError(t("Chỉ hỗ trợ địa chỉ @gmail.com.", "Only @gmail.com addresses are supported."));
     submitting.current = true;
     setLoading(true);
     try {
       if (reset) {
         await api.resetPassword(token, password, confirmation);
         sessionStore.clear();
-        setMessage("Mật khẩu đã được cập nhật. Hãy đăng nhập lại bằng mật khẩu mới.");
+        setMessage(t("Mật khẩu đã được cập nhật. Hãy đăng nhập lại bằng mật khẩu mới.", "Your password has been updated. Sign in again with the new password."));
       } else {
         const result = await api.forgotPassword(email.toLowerCase());
         setMessage(result.message);
       }
       setDone(true);
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "Không thể kết nối. Vui lòng thử lại.");
+      setError(cause instanceof ApiError ? cause.message : t("Không thể kết nối. Vui lòng thử lại.", "Could not connect. Please try again."));
     } finally {
       submitting.current = false;
       setLoading(false);
@@ -53,19 +56,19 @@ export function PasswordRecoveryPage({ reset = false }: { reset?: boolean }) {
   }
 
   return <AuthLayout>
-    <div className="auth-brand">Trợ lý du lịch Việt Nam</div>
-    <h1 id="auth-title">{reset ? "Đặt lại mật khẩu" : "Quên mật khẩu?"}</h1>
-    <p className="auth-subtitle">{reset ? "Chọn mật khẩu mới cho tài khoản của bạn." : "Nhập Gmail của bạn để nhận liên kết khôi phục."}</p>
-    {reset && !token ? <div className="form-error" role="alert">Liên kết thiếu mã xác nhận. Hãy yêu cầu liên kết mới.</div> : !done && <form className="auth-form" onSubmit={submit}>
+    <div className="auth-brand">Vietnam Travel Advisor</div>
+    <h1 id="auth-title">{reset ? t("Đặt lại mật khẩu", "Reset password") : t("Quên mật khẩu?", "Forgot password?")}</h1>
+    <p className="auth-subtitle">{reset ? t("Chọn mật khẩu mới cho tài khoản của bạn.", "Choose a new password for your account.") : t("Nhập Gmail của bạn để nhận liên kết khôi phục.", "Enter your Gmail address to receive a recovery link.")}</p>
+    {reset && !token ? <div className="form-error" role="alert">{t("Liên kết thiếu mã xác nhận. Hãy yêu cầu liên kết mới.", "The recovery token is missing. Request a new link.")}</div> : !done && <form className="auth-form" onSubmit={submit}>
       {reset ? <>
-        <PasswordField label="Mật khẩu mới" autoComplete="new-password" disabled={loading} />
-        <PasswordField label="Xác nhận mật khẩu" name="confirm_password" autoComplete="new-password" disabled={loading} />
-      </> : <label><span>Địa chỉ Gmail</span><input name="email" type="email" autoComplete="email" defaultValue={initialEmail} required disabled={loading} /></label>}
-      <button className="primary-button auth-submit" disabled={loading}>{loading ? "Đang xử lý..." : reset ? "Lưu mật khẩu mới" : "Gửi liên kết xác nhận"}</button>
+        <PasswordField label={t("Mật khẩu mới", "New password")} autoComplete="new-password" disabled={loading} />
+        <PasswordField label={t("Xác nhận mật khẩu", "Confirm password")} name="confirm_password" autoComplete="new-password" disabled={loading} />
+      </> : <label><span>{t("Địa chỉ Gmail", "Gmail address")}</span><input name="email" type="email" autoComplete="email" defaultValue={initialEmail} required disabled={loading} /></label>}
+      <Button htmlType="submit" type="primary" className="auth-submit" loading={loading}>{reset ? t("Lưu mật khẩu mới", "Save new password") : t("Gửi liên kết xác nhận", "Send recovery link")}</Button>
     </form>}
     {error && <div className="form-error" role="alert">{error}</div>}
     {message && <p role="status">{message}</p>}
-    <p className="auth-switch"><Link to="/login">Quay lại đăng nhập</Link></p>
-    {reset && <p><Link to="/forgot-password">Yêu cầu liên kết mới</Link></p>}
+    <p className="auth-switch"><Link to="/login">{t("Quay lại đăng nhập", "Back to sign in")}</Link></p>
+    {reset && <p><Link to="/forgot-password">{t("Yêu cầu liên kết mới", "Request a new link")}</Link></p>}
   </AuthLayout>;
 }

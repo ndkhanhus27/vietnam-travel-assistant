@@ -27,6 +27,8 @@ export type AdminUser = UserResponse & {
   created_at: string;
   conversation_count: number;
   run_count: number;
+  providers: Array<"local" | "google">;
+  last_login_at: string | null;
 };
 
 export type AdminUserPage = {
@@ -47,6 +49,9 @@ export type AdminAgentRun = {
   latency_ms: number | null;
   retry_count: number;
   tools_used: string[] | null;
+  grounded: boolean;
+  evidence_count: number;
+  citation_count: number;
   error_code: string | null;
   created_at: string;
   completed_at: string | null;
@@ -57,6 +62,45 @@ export type AdminAgentRunPage = {
   total: number;
   limit: number;
   offset: number;
+};
+
+export type AdminConversation = {
+  id: string;
+  title: string | null;
+  user_id: string;
+  user_email: string;
+  user_display_name: string | null;
+  message_count: number;
+  run_count: number;
+  last_intent: string | null;
+  last_retrieval_mode: string | null;
+  is_archived: boolean;
+  created_at: string;
+  updated_at: string;
+  last_message_at: string | null;
+};
+
+export type AdminConversationPage = {
+  items: AdminConversation[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type AdminConversationDetail = AdminConversation & {
+  messages: MessageResponse[];
+};
+
+export type AdminKnowledge = {
+  documents: number;
+  active_documents: number;
+  entity_candidates: number;
+  last_import_at: string | null;
+  collection: string;
+  qdrant_status: string;
+  points: number | null;
+  vector_size: number | null;
+  distance: string | null;
 };
 
 export type AuthResponse = {

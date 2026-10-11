@@ -4,10 +4,20 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
-from app.db.models import AgentRun, Conversation, User
+from app.db.models import (
+    AgentRun,
+    AuthAccount,
+    Conversation,
+    Document,
+    EntityCandidate,
+    Message,
+    RefreshToken,
+    User,
+)
 
 
 class AdminRepository:
@@ -79,7 +89,11 @@ class AdminRepository:
         *,
         limit: int,
         offset: int,
-    ) -> tuple[list[tuple[User, int, int]], int]:
+        query: str | None = None,
+        role: str | None = None,
+        status: str | None = None,
+        provider: str | None = None,
+    ) -> tuple[list[tuple[User, int, int, list[str], datetime | None]], int]:
         conversation_count = (
             select(func.count(Conversation.id))
             .where(Conversation.user_id == User.id)
@@ -93,23 +107,59 @@ class AdminRepository:
             .correlate(User)
             .scalar_subquery()
         )
+        providers = (
+            select(func.array_agg(AuthAccount.provider))
+            .where(AuthAccount.user_id == User.id)
+            .correlate(User)
+            .scalar_subquery()
+        )
+        last_login = (
+            select(func.max(func.coalesce(RefreshToken.last_used_at, RefreshToken.created_at)))
+            .where(RefreshToken.user_id == User.id)
+            .correlate(User)
+            .scalar_subquery()
+        )
+        filters = []
+        if query:
+            pattern = f"%{query.strip()}%"
+            filters.append(or_(User.email.ilike(pattern), User.display_name.ilike(pattern)))
+        if role == "admin":
+            filters.append(User.is_admin.is_(True))
+        elif role == "user":
+            filters.append(User.is_admin.is_(False))
+        if status == "active":
+            filters.append(User.is_active.is_(True))
+        elif status == "blocked":
+            filters.append(User.is_active.is_(False))
+        if provider:
+            filters.append(
+                select(AuthAccount.id)
+                .where(
+                    AuthAccount.user_id == User.id,
+                    AuthAccount.provider == provider,
+                )
+                .exists()
+            )
         rows = await self.session.execute(
             select(
                 User,
                 conversation_count.label("conversation_count"),
                 run_count.label("run_count"),
+                providers.label("providers"),
+                last_login.label("last_login_at"),
             )
+            .where(*filters)
             .order_by(User.created_at.desc(), User.id.desc())
             .limit(limit)
             .offset(offset)
         )
         total = int(
-            (await self.session.execute(select(func.count(User.id))))
+            (await self.session.execute(select(func.count(User.id)).where(*filters)))
             .scalar_one()
         )
         return [
-            (user, int(conversations), int(runs))
-            for user, conversations, runs in rows.all()
+            (user, int(conversations), int(runs), list(user_providers or []), login_at)
+            for user, conversations, runs, user_providers, login_at in rows.all()
         ], total
 
     async def get_user(self, user_id: uuid.UUID) -> User | None:
@@ -144,25 +194,213 @@ class AdminRepository:
         )
         return conversation_count, run_count
 
+    async def get_user_auth_summary(
+        self,
+        user_id: uuid.UUID,
+    ) -> tuple[list[str], datetime | None]:
+        providers = list((await self.session.execute(
+            select(AuthAccount.provider)
+            .where(AuthAccount.user_id == user_id)
+            .order_by(AuthAccount.provider)
+        )).scalars())
+        last_login = (await self.session.execute(
+            select(func.max(func.coalesce(
+                RefreshToken.last_used_at,
+                RefreshToken.created_at,
+            ))).where(RefreshToken.user_id == user_id)
+        )).scalar_one()
+        return providers, last_login
+
     async def list_agent_runs(
         self,
         *,
         limit: int,
         offset: int,
-    ) -> tuple[list[tuple[AgentRun, str, str | None]], int]:
+        query: str | None = None,
+        intent: str | None = None,
+        retrieval_mode: str | None = None,
+        status: str | None = None,
+    ) -> tuple[
+        list[tuple[AgentRun, str, str | None, list[dict] | None]],
+        int,
+    ]:
+        assistant_message = aliased(Message)
+        filters = []
+        if query:
+            pattern = f"%{query.strip()}%"
+            filters.append(or_(
+                User.email.ilike(pattern),
+                User.display_name.ilike(pattern),
+                cast(AgentRun.id, String).ilike(pattern),
+                cast(AgentRun.conversation_id, String).ilike(pattern),
+            ))
+        if intent:
+            filters.append(AgentRun.intent == intent)
+        if retrieval_mode:
+            filters.append(AgentRun.retrieval_mode == retrieval_mode)
+        if status:
+            filters.append(AgentRun.status == status)
         rows = await self.session.execute(
-            select(AgentRun, User.email, User.display_name)
+            select(
+                AgentRun,
+                User.email,
+                User.display_name,
+                assistant_message.citations,
+            )
             .join(
                 Conversation,
                 Conversation.id == AgentRun.conversation_id,
             )
             .join(User, User.id == Conversation.user_id)
+            .outerjoin(
+                assistant_message,
+                assistant_message.id == AgentRun.assistant_message_id,
+            )
+            .where(*filters)
             .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
             .limit(limit)
             .offset(offset)
         )
         total = int(
-            (await self.session.execute(select(func.count(AgentRun.id))))
+            (
+                await self.session.execute(
+                    select(func.count(AgentRun.id))
+                    .join(Conversation, Conversation.id == AgentRun.conversation_id)
+                    .join(User, User.id == Conversation.user_id)
+                    .where(*filters)
+                )
+            )
             .scalar_one()
         )
         return list(rows.all()), total
+
+    async def list_conversations(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        query: str | None = None,
+        user_id: uuid.UUID | None = None,
+    ) -> tuple[list[tuple], int]:
+        message_count = (
+            select(func.count(Message.id))
+            .where(Message.conversation_id == Conversation.id)
+            .correlate(Conversation)
+            .scalar_subquery()
+        )
+        run_count = (
+            select(func.count(AgentRun.id))
+            .where(AgentRun.conversation_id == Conversation.id)
+            .correlate(Conversation)
+            .scalar_subquery()
+        )
+        last_intent = (
+            select(AgentRun.intent)
+            .where(AgentRun.conversation_id == Conversation.id)
+            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+            .limit(1)
+            .correlate(Conversation)
+            .scalar_subquery()
+        )
+        last_mode = (
+            select(AgentRun.retrieval_mode)
+            .where(AgentRun.conversation_id == Conversation.id)
+            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+            .limit(1)
+            .correlate(Conversation)
+            .scalar_subquery()
+        )
+        filters = []
+        if query:
+            pattern = f"%{query.strip()}%"
+            filters.append(or_(
+                Conversation.title.ilike(pattern),
+                User.email.ilike(pattern),
+                User.display_name.ilike(pattern),
+                cast(Conversation.id, String).ilike(pattern),
+            ))
+        if user_id:
+            filters.append(Conversation.user_id == user_id)
+        statement = (
+            select(
+                Conversation,
+                User.email,
+                User.display_name,
+                message_count.label("message_count"),
+                run_count.label("run_count"),
+                last_intent.label("last_intent"),
+                last_mode.label("last_retrieval_mode"),
+            )
+            .join(User, User.id == Conversation.user_id)
+            .where(*filters)
+            .order_by(
+                Conversation.last_message_at.desc().nullslast(),
+                Conversation.created_at.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = list((await self.session.execute(statement)).all())
+        total = int((await self.session.execute(
+            select(func.count(Conversation.id))
+            .join(User, User.id == Conversation.user_id)
+            .where(*filters)
+        )).scalar_one())
+        return rows, total
+
+    async def get_conversation_detail(self, conversation_id: uuid.UUID):
+        statement = (
+            select(Conversation, User.email, User.display_name)
+            .join(User, User.id == Conversation.user_id)
+            .where(Conversation.id == conversation_id)
+        )
+        owner_row = (await self.session.execute(statement)).one_or_none()
+        if owner_row is None:
+            return None
+        conversation, email, display_name = owner_row
+        counts = await self.session.execute(
+            select(
+                select(func.count(Message.id)).where(Message.conversation_id == conversation_id).scalar_subquery(),
+                select(func.count(AgentRun.id)).where(AgentRun.conversation_id == conversation_id).scalar_subquery(),
+            )
+        )
+        message_total, run_total = counts.one()
+        latest_run = (await self.session.execute(
+            select(AgentRun.intent, AgentRun.retrieval_mode)
+            .where(AgentRun.conversation_id == conversation_id)
+            .order_by(AgentRun.created_at.desc(), AgentRun.id.desc())
+            .limit(1)
+        )).one_or_none()
+        messages = list((await self.session.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.sequence_no)
+        )).scalars())
+        return (
+            conversation,
+            email,
+            display_name,
+            int(message_total),
+            int(run_total),
+            latest_run[0] if latest_run else None,
+            latest_run[1] if latest_run else None,
+            messages,
+        )
+
+    async def knowledge_counts(self) -> dict[str, object]:
+        documents, active_documents, entities, last_import = (
+            await self.session.execute(
+                select(
+                    select(func.count(Document.id)).scalar_subquery(),
+                    select(func.count(Document.id)).where(Document.is_active.is_(True)).scalar_subquery(),
+                    select(func.count(EntityCandidate.id)).scalar_subquery(),
+                    select(func.max(Document.fetched_at)).scalar_subquery(),
+                )
+            )
+        ).one()
+        return {
+            "documents": int(documents),
+            "active_documents": int(active_documents),
+            "entity_candidates": int(entities),
+            "last_import_at": last_import,
+        }

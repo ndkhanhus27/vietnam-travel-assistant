@@ -6,11 +6,14 @@ import { GoogleSignIn } from "../components/GoogleSignIn";
 import { AuthLayout } from "../components/AuthLayout";
 import { PasswordField } from "../components/PasswordField";
 import { isGmailAddress } from "../auth/emailPolicy";
+import { Button } from "antd";
+import { useLocale } from "../locale/LocaleProvider";
 
 export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { authenticate } = useAuth();
+  const { t } = useLocale();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -22,22 +25,22 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   const destination = from?.startsWith("/") && !from.startsWith("//") ? from : "/";
 
   const handleError = useCallback((cause: unknown) => {
-    if (!(cause instanceof ApiError)) return setError("Không thể kết nối đến máy chủ. Vui lòng thử lại.");
-    if (cause.status === 401) return setError("Thông tin đăng nhập không đúng hoặc đã hết hạn. Vui lòng thử lại.");
-    if (cause.status === 429) return setError(cause.retryAfter ? `Vui lòng thử lại sau ${cause.retryAfter} giây.` : "Bạn thao tác quá nhanh. Vui lòng thử lại sau.");
+    if (!(cause instanceof ApiError)) return setError(t("Không thể kết nối đến máy chủ. Vui lòng thử lại.", "Could not connect to the server. Please try again."));
+    if (cause.status === 401) return setError(t("Thông tin đăng nhập không đúng hoặc đã hết hạn. Vui lòng thử lại.", "Your credentials are incorrect or expired. Please try again."));
+    if (cause.status === 429) return setError(cause.retryAfter ? t(`Vui lòng thử lại sau ${cause.retryAfter} giây.`, `Please try again in ${cause.retryAfter} seconds.`) : t("Bạn thao tác quá nhanh. Vui lòng thử lại sau.", "Too many attempts. Please try again later."));
     setError(cause.message);
-  }, []);
+  }, [t]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (submitting.current) return;
     setError("");
     const normalizedEmail = email.trim().toLowerCase();
-    if (!linkCredential && !isGmailAddress(normalizedEmail)) return setError("Chỉ hỗ trợ địa chỉ @gmail.com. Vui lòng sử dụng Gmail.");
+    if (!linkCredential && !isGmailAddress(normalizedEmail)) return setError(t("Chỉ hỗ trợ địa chỉ @gmail.com. Vui lòng sử dụng Gmail.", "Only @gmail.com addresses are supported."));
     const form = new FormData(event.currentTarget);
     const password = String(form.get("password") || "");
-    if (!password) return setError("Vui lòng nhập mật khẩu.");
-    if (!isLogin && !linkCredential && password !== String(form.get("confirm_password") || "")) return setError("Mật khẩu xác nhận không khớp.");
+    if (!password) return setError(t("Vui lòng nhập mật khẩu.", "Please enter your password."));
+    if (!isLogin && !linkCredential && password !== String(form.get("confirm_password") || "")) return setError(t("Mật khẩu xác nhận không khớp.", "The passwords do not match."));
     submitting.current = true;
     setLoading(true);
     try {
@@ -77,22 +80,23 @@ export function AuthPage({ mode }: { mode: "login" | "register" }) {
   }, [authenticate, destination, handleError, navigate]);
 
   return <AuthLayout>
-    <div className="auth-brand">Trợ lý du lịch Việt Nam</div>
-    <h1 id="auth-title">{linkCredential ? "Liên kết Google" : isLogin ? "Đăng nhập" : "Tạo tài khoản"}</h1>
-    <p className="auth-subtitle">{linkCredential ? "Nhập mật khẩu hiện tại để liên kết tài khoản." : isLogin ? "Tiếp tục cuộc trò chuyện của bạn." : "Đăng ký bằng Gmail hoặc tài khoản Google."}</p>
-    <form className="auth-form" onSubmit={submit} key={linkCredential ? "link" : mode}>
-      {!linkCredential && <label><span>Địa chỉ Gmail</span><input name="email" type="email" autoComplete="email" placeholder="ban@gmail.com" value={email} onChange={event => setEmail(event.target.value)} required disabled={loading} autoFocus /></label>}
-      <PasswordField autoComplete={isLogin || linkCredential ? "current-password" : "new-password"} disabled={loading} autoFocus={Boolean(linkCredential)} />
-      {!isLogin && !linkCredential && <PasswordField label="Xác nhận mật khẩu" name="confirm_password" autoComplete="new-password" disabled={loading} />}
-      {(isLogin || linkCredential) && <Link className="auth-forgot" to="/forgot-password" state={{ email }}>Quên mật khẩu?</Link>}
-      {error && <div className="form-error" role="alert">{error}</div>}
-      <button className="primary-button auth-submit" disabled={loading}>{loading ? "Đang xử lý..." : linkCredential ? "Xác nhận liên kết Google" : isLogin ? "Đăng nhập" : "Tạo tài khoản"}</button>
-    </form>
-    {linkCredential ? <button className="auth-back" type="button" onClick={() => { setLinkCredential(null); setError(""); }} disabled={loading}>Quay lại đăng nhập</button> : <>
-      <p className="auth-switch">{isLogin ? "Chưa có tài khoản?" : "Đã có tài khoản?"} <Link to={isLogin ? "/register" : "/login"}>{isLogin ? "Đăng ký" : "Đăng nhập"}</Link></p>
-      <div className="or-divider"><span>hoặc</span></div>
+    <div className="auth-brand">Vietnam Travel Advisor</div>
+    <h1 id="auth-title">{linkCredential ? t("Liên kết Google", "Link Google") : isLogin ? t("Đăng nhập", "Sign in") : t("Tạo tài khoản", "Create account")}</h1>
+    <p className="auth-subtitle">{linkCredential ? t("Nhập mật khẩu hiện tại để liên kết tài khoản.", "Enter your current password to link this account.") : isLogin ? t("Chào mừng bạn quay lại.", "Welcome back.") : t("Bắt đầu hành trình chỉ trong vài bước.", "Start your journey in a few simple steps.")}</p>
+    {!linkCredential && <>
       <GoogleSignIn disabled={loading} onCredential={googleCredential} onUnavailable={setGoogleNotice} />
       {googleNotice && <p className="auth-provider-notice" role="status">{googleNotice}</p>}
+      <div className="or-divider"><span>{t("hoặc", "or")}</span></div>
     </>}
+    <form className="auth-form" onSubmit={submit} key={linkCredential ? "link" : mode}>
+      {!linkCredential && <label><span>{t("Địa chỉ Gmail", "Gmail address")}</span><input name="email" type="email" autoComplete="email" placeholder="you@gmail.com" value={email} onChange={event => setEmail(event.target.value)} required disabled={loading} autoFocus /></label>}
+      <PasswordField autoComplete={isLogin || linkCredential ? "current-password" : "new-password"} disabled={loading} autoFocus={Boolean(linkCredential)} />
+      {!isLogin && !linkCredential && <PasswordField label={t("Xác nhận mật khẩu", "Confirm password")} name="confirm_password" autoComplete="new-password" disabled={loading} />}
+      {(isLogin || linkCredential) && <Link className="auth-forgot" to="/forgot-password" state={{ email }}>{t("Quên mật khẩu?", "Forgot password?")}</Link>}
+      {error && <div className="form-error" role="alert">{error}</div>}
+      <Button htmlType="submit" type="primary" className="auth-submit" loading={loading}>{linkCredential ? t("Xác nhận liên kết Google", "Confirm Google link") : isLogin ? t("Đăng nhập", "Sign in") : t("Tạo tài khoản", "Create account")}</Button>
+    </form>
+    {linkCredential ? <button className="auth-back" type="button" onClick={() => { setLinkCredential(null); setError(""); }} disabled={loading}>{t("Quay lại đăng nhập", "Back to sign in")}</button> :
+      <p className="auth-switch">{isLogin ? t("Chưa có tài khoản?", "New here?") : t("Đã có tài khoản?", "Already have an account?")} <Link to={isLogin ? "/register" : "/login"}>{isLogin ? t("Đăng ký", "Create account") : t("Đăng nhập", "Sign in")}</Link></p>}
   </AuthLayout>;
 }
