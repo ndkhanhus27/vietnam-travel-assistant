@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     rate_limit_auth_requests: int = Field(default=10, gt=0)
     rate_limit_auth_window_seconds: int = Field(default=60, gt=0)
     cache_default_ttl_seconds: int = Field(default=300, gt=0)
-    cache_weather_ttl_seconds: int = Field(default=600, gt=0)
+    cache_weather_ttl_seconds: int = Field(default=1800, gt=0)
     cache_geocode_ttl_seconds: int = Field(default=86_400, gt=0)
 
     gemini_api_key: str | None = None

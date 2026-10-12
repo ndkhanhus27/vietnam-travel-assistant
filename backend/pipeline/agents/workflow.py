@@ -11,6 +11,8 @@ from langgraph.graph import (
     StateGraph,
 )
 
+from app.core.config import settings
+
 from pipeline.agents.context import (
     ContextBuilder,
     ConversationContext,
@@ -121,6 +123,7 @@ class TravelAgentWorkflow:
         reasoner: TravelReasoner | None = None,
         synthesizer: TravelSynthesizer | None = None,
         llm_runtime: GeminiRuntime | None = None,
+        cache: Any | None = None,
     ) -> None:
 
         runtime = llm_runtime
@@ -157,7 +160,10 @@ class TravelAgentWorkflow:
         self.executor = (
             executor
             if executor is not None
-            else ToolExecutor()
+            else ToolExecutor(
+                cache=cache,
+                weather_cache_ttl_seconds=settings.cache_weather_ttl_seconds,
+            )
         )
 
         self.aggregator = (
@@ -1089,6 +1095,6 @@ def _stage_event(stage: str) -> dict[str, str]:
     }
 
 
-def build_workflow() -> TravelAgentWorkflow:
+def build_workflow(*, cache: Any | None = None) -> TravelAgentWorkflow:
 
-    return TravelAgentWorkflow()
+    return TravelAgentWorkflow(cache=cache)

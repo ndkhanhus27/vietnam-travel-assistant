@@ -2,18 +2,27 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 
 from pipeline.agents.schemas import (
     ExecutionPlan,
     SubTask,
     TaskStatus,
     ToolObservation,
+    ToolName,
+    WeatherRequest,
 )
 
 from pipeline.agents.tools import (
     ToolRegistry,
 )
+from pipeline.agents.tools.weather import WeatherTool
+
+
+class JsonCache(Protocol):
+    async def get_json(self, key: str) -> Any: ...
+
+    async def set_json(self, key: str, value: Any, *, ttl_seconds: int) -> bool: ...
 
 
 # ============================================================
@@ -51,6 +60,8 @@ class ToolExecutor:
         self,
         registry: ToolRegistry | None = None,
         *,
+        cache: JsonCache | None = None,
+        weather_cache_ttl_seconds: int = 1800,
         max_concurrency: int = 4,
     ) -> None:
 
@@ -64,6 +75,12 @@ class ToolExecutor:
             if registry is not None
             else ToolRegistry()
         )
+
+        if weather_cache_ttl_seconds <= 0:
+            raise ValueError("weather_cache_ttl_seconds must be > 0")
+
+        self.cache = cache
+        self.weather_cache_ttl_seconds = weather_cache_ttl_seconds
 
         self.max_concurrency = (
             max_concurrency
@@ -257,6 +274,48 @@ class ToolExecutor:
     # EXECUTE ONE TASK
     # ========================================================
 
+    async def _execute_registry(
+        self,
+        *,
+        task: SubTask,
+        plan: ExecutionPlan,
+    ) -> ToolObservation:
+        async def call_tool() -> ToolObservation:
+            return await asyncio.to_thread(
+                self.registry.execute,
+                task,
+                research_depth=plan.research_depth,
+            )
+
+        if self.cache is None or task.tool != ToolName.WEATHER:
+            return await call_tool()
+
+        try:
+            request = WeatherRequest.model_validate(task.arguments)
+        except Exception:
+            return await call_tool()
+
+        key = WeatherTool.cache_key(request)
+        cached = await self.cache.get_json(key)
+        if isinstance(cached, dict):
+            cached_payload = dict(cached)
+            cached_payload["task_id"] = task.task_id
+            try:
+                return ToolObservation.model_validate(cached_payload)
+            except Exception:
+                pass
+
+        observation = await call_tool()
+        if observation.status == TaskStatus.SUCCESS:
+            payload = observation.model_dump(mode="json")
+            payload.pop("task_id", None)
+            await self.cache.set_json(
+                key,
+                payload,
+                ttl_seconds=self.weather_cache_ttl_seconds,
+            )
+        return observation
+
     async def _execute_task(
         self,
         *,
@@ -285,15 +344,7 @@ class ToolExecutor:
                     }
                 )
 
-            observation = (
-                await asyncio.to_thread(
-                    self.registry.execute,
-                    task,
-                    research_depth=(
-                        plan.research_depth
-                    ),
-                )
-            )
+            observation = await self._execute_registry(task=task, plan=plan)
 
             if event_sink is not None:
                 event_sink(

@@ -20,7 +20,7 @@ from app.api.routes import (
 from app.core.config import settings
 from app.db.session import close_db
 from app.db.session import AsyncSessionFactory
-from app.infra.redis import create_redis_client
+from app.infra.redis import RedisJsonCache, create_redis_client
 from app.services.admin import bootstrap_admin
 
 
@@ -50,7 +50,8 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionFactory() as session:
         await bootstrap_admin(session)
 
-    app.state.travel_workflow = build_workflow()
+    cache = RedisJsonCache(app.state.redis) if app.state.redis is not None else None
+    app.state.travel_workflow = build_workflow(cache=cache)
     try:
         yield
     finally:

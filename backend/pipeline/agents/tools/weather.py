@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from app.core.config import settings
+from app.infra.redis import cache_key
 from pipeline.agents.schemas import (
     TaskStatus,
     ToolName,
@@ -37,6 +38,26 @@ class WeatherTool:
     Historical weather is intentionally unsupported because the free
     OpenWeather endpoints used here do not provide historical data.
     """
+
+    @staticmethod
+    def cache_key(
+        request: WeatherRequest,
+        *,
+        as_of: date | None = None,
+    ) -> str:
+        """Build a daily cache identity without storing user text or API keys."""
+
+        anchor = as_of or datetime.now(timezone.utc).date()
+        return cache_key(
+            "weather",
+            request.location,
+            request.mode.value,
+            anchor.isoformat(),
+            request.start_offset_days,
+            request.end_offset_days,
+            settings.openweather_units,
+            settings.openweather_language,
+        )
 
     def __init__(self) -> None:
         if not settings.openweather_api_key:
