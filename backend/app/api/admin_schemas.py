@@ -76,46 +76,6 @@ class AdminAgentRunPage(BaseModel):
     offset: int
 
 
-class AdminConversationResponse(BaseModel):
-    id: uuid.UUID
-    title: str | None
-    user_id: uuid.UUID
-    user_email: str
-    user_display_name: str | None
-    message_count: int
-    run_count: int
-    last_intent: str | None
-    last_retrieval_mode: str | None
-    is_archived: bool
-    created_at: datetime
-    updated_at: datetime
-    last_message_at: datetime | None
-
-
-class AdminConversationPage(BaseModel):
-    items: list[AdminConversationResponse]
-    total: int
-    limit: int
-    offset: int
-
-
-class AdminConversationMessageResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: uuid.UUID
-    role: str
-    content: str
-    sequence_no: int
-    intent: str | None
-    citations: list[dict[str, object]] | None
-    warnings: list[str] | None
-    created_at: datetime
-
-
-class AdminConversationDetailResponse(AdminConversationResponse):
-    messages: list[AdminConversationMessageResponse]
-
-
 class AdminKnowledgeResponse(BaseModel):
     documents: int
     active_documents: int

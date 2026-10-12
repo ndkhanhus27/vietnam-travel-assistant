@@ -9,10 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.admin_schemas import (
     AdminAgentRunPage,
     AdminAgentRunResponse,
-    AdminConversationDetailResponse,
-    AdminConversationMessageResponse,
-    AdminConversationPage,
-    AdminConversationResponse,
     AdminKnowledgeResponse,
     AdminOverviewResponse,
     AdminUserPage,
@@ -179,81 +175,6 @@ async def list_agent_runs(
         total=total,
         limit=limit,
         offset=offset,
-    )
-
-
-def _conversation_response(row: tuple) -> AdminConversationResponse:
-    (
-        conversation,
-        email,
-        display_name,
-        message_count,
-        run_count,
-        last_intent,
-        last_mode,
-    ) = row
-    return AdminConversationResponse(
-        id=conversation.id,
-        title=conversation.title,
-        user_id=conversation.user_id,
-        user_email=email,
-        user_display_name=display_name,
-        message_count=message_count,
-        run_count=run_count,
-        last_intent=last_intent,
-        last_retrieval_mode=last_mode,
-        is_archived=conversation.is_archived,
-        created_at=conversation.created_at,
-        updated_at=conversation.updated_at,
-        last_message_at=conversation.last_message_at,
-    )
-
-
-@router.get("/conversations", response_model=AdminConversationPage)
-async def list_conversations(
-    _: Annotated[User, Depends(require_admin_user)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-    limit: Annotated[int, Query(ge=1, le=100)] = 25,
-    offset: Annotated[int, Query(ge=0)] = 0,
-    q: Annotated[str | None, Query(max_length=200)] = None,
-    user_id: uuid.UUID | None = None,
-) -> AdminConversationPage:
-    rows, total = await AdminRepository(session).list_conversations(
-        limit=limit,
-        offset=offset,
-        query=q,
-        user_id=user_id,
-    )
-    return AdminConversationPage(
-        items=[_conversation_response(row) for row in rows],
-        total=total,
-        limit=limit,
-        offset=offset,
-    )
-
-
-@router.get(
-    "/conversations/{conversation_id}",
-    response_model=AdminConversationDetailResponse,
-)
-async def get_conversation(
-    conversation_id: uuid.UUID,
-    _: Annotated[User, Depends(require_admin_user)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> AdminConversationDetailResponse:
-    detail = await AdminRepository(session).get_conversation_detail(
-        conversation_id
-    )
-    if detail is None:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    *summary, messages = detail
-    base = _conversation_response(tuple(summary))
-    return AdminConversationDetailResponse(
-        **base.model_dump(),
-        messages=[
-            AdminConversationMessageResponse.model_validate(message)
-            for message in messages
-        ],
     )
 
 

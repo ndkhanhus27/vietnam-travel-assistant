@@ -383,7 +383,7 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.status_code, 200)
         self.assertEqual(updated.json()["feedback"], -1)
 
-    async def test_admin_conversation_and_filter_endpoints_use_real_data(self):
+    async def test_admin_metrics_do_not_expose_conversation_content(self):
         admin_id, owner_id = await self._create_users("admin-console")
         async with AsyncSessionFactory.begin() as session:
             admin = await session.get(User, admin_id)
@@ -419,11 +419,12 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(users.status_code, 200)
         self.assertGreaterEqual(users.json()["total"], 1)
         self.assertIn("providers", users.json()["items"][0])
-        self.assertEqual(conversations.status_code, 200)
-        self.assertEqual(conversations.json()["total"], 1)
-        self.assertEqual(conversations.json()["items"][0]["message_count"], 2)
-        self.assertEqual(detail.status_code, 200)
-        self.assertEqual([message["role"] for message in detail.json()["messages"]], ["user", "assistant"])
+        self.assertEqual(conversations.status_code, 404)
+        self.assertEqual(detail.status_code, 404)
+        foreign_messages = await self.client.get(
+            f"/api/v1/conversations/{conversation_id}/messages", headers=headers,
+        )
+        self.assertEqual(foreign_messages.status_code, 404)
         self.assertEqual(runs.status_code, 200)
         matching_run = next(
             item
@@ -433,6 +434,7 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("grounded", matching_run)
         self.assertIn("citation_count", matching_run)
         self.assertIn("evidence_count", matching_run)
+        self.assertFalse({"content", "messages", "title", "context_state"} & matching_run.keys())
         self.assertEqual(
             matching_run["grounded"],
             matching_run["citation_count"] > 0,

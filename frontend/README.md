@@ -78,6 +78,9 @@ ADMIN_INITIAL_PASSWORD=replace-with-a-strong-local-password
 Bootstrap is disabled by default, is idempotent, and never logs the password.
 Leave it disabled outside explicitly configured development environments.
 
+The admin console exposes account management and operational metrics only.
+It has no API or view for reading other users' conversation titles or messages.
+
 PostgreSQL remains authoritative for conversation history. The frontend never
 sends visible history, user IDs, tool choices, or internal context in a chat
 request.

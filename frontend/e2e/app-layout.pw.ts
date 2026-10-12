@@ -20,7 +20,7 @@ async function mockAuthenticatedApi(page: Page) {
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
-    if (path.endsWith("/admin/conversations") || path.endsWith("/admin/agent-runs")) return route.fulfill({ json: { items: [], total: 0, limit: 20, offset: 0 } });
+    if (path.endsWith("/admin/agent-runs")) return route.fulfill({ json: { items: [], total: 0, limit: 20, offset: 0 } });
     if (path.endsWith("/admin/knowledge")) return route.fulfill({ json: { documents: 84, active_documents: 84, entity_candidates: 1843, last_import_at: null, collection: "travel_chunks", qdrant_status: "green", points: 287, vector_size: 1024, distance: "Cosine" } });
     if (path.endsWith("/users/me")) return route.fulfill({ json: user });
     if (path.endsWith("/conversations")) return route.fulfill({ json: [
@@ -73,7 +73,8 @@ test("admin navigation and theme remain usable on mobile", async ({ page }) => {
   expect(await page.locator(".admin-page").evaluate(el => getComputedStyle(el).backgroundColor)).toBe("rgb(23, 24, 29)");
   await expect(page.getByText("EN", { exact: true })).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Người dùng", exact: true })).toBeVisible();
-  for (const name of ["Hội thoại", "Lượt chạy AI", "Kho tri thức"]) {
+  await expect(page.getByRole("navigation").getByRole("button", { name: "Hội thoại", exact: true })).toHaveCount(0);
+  for (const name of ["Lượt chạy AI", "Kho tri thức"]) {
     await page.getByRole("navigation").getByRole("button", { name, exact: true }).click();
     await expect(page.getByRole("heading", { name, exact: true }).first()).toBeVisible();
     await expect(page.locator(".ant-spin-container")).not.toHaveClass(/ant-spin-blur/);

@@ -64,33 +64,6 @@ export type AdminAgentRunPage = {
   offset: number;
 };
 
-export type AdminConversation = {
-  id: string;
-  title: string | null;
-  user_id: string;
-  user_email: string;
-  user_display_name: string | null;
-  message_count: number;
-  run_count: number;
-  last_intent: string | null;
-  last_retrieval_mode: string | null;
-  is_archived: boolean;
-  created_at: string;
-  updated_at: string;
-  last_message_at: string | null;
-};
-
-export type AdminConversationPage = {
-  items: AdminConversation[];
-  total: number;
-  limit: number;
-  offset: number;
-};
-
-export type AdminConversationDetail = AdminConversation & {
-  messages: MessageResponse[];
-};
-
 export type AdminKnowledge = {
   documents: number;
   active_documents: number;

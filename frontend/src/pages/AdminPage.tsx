@@ -7,15 +7,15 @@ import {
 import { Button, Empty, Input, Pagination, Select, Spin, Switch, Tooltip } from "antd";
 import { api, ApiError } from "../api/client";
 import type {
-  AdminAgentRun, AdminAgentRunPage, AdminConversation, AdminConversationDetail,
-  AdminConversationPage, AdminKnowledge, AdminOverview, AdminUser, AdminUserPage,
+  AdminAgentRun, AdminAgentRunPage,
+  AdminKnowledge, AdminOverview, AdminUser, AdminUserPage,
 } from "../api/types";
 import { useAppearance } from "../appearance/AppearanceProvider";
 import { useAuth } from "../auth/AuthProvider";
 import { useLocale } from "../locale/LocaleProvider";
 import { localizeNotification } from "../locale/notifications";
 
-type View = "users" | "conversations" | "runs" | "knowledge";
+type View = "users" | "runs" | "knowledge";
 type Translate = (vi: string, en: string) => string;
 const PAGE_SIZE = 20;
 
@@ -26,10 +26,8 @@ export function AdminPage() {
   const [view, setView] = useState<View>("users");
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<AdminUserPage | null>(null);
-  const [conversations, setConversations] = useState<AdminConversationPage | null>(null);
   const [runs, setRuns] = useState<AdminAgentRunPage | null>(null);
   const [knowledge, setKnowledge] = useState<AdminKnowledge | null>(null);
-  const [selectedConversation, setSelectedConversation] = useState<AdminConversationDetail | null>(null);
   const [selectedRun, setSelectedRun] = useState<AdminAgentRun | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -45,7 +43,6 @@ export function AdminPage() {
       const options = compactFilters({ q: query, ...filters });
       const overviewRequest = api.adminOverview();
       if (view === "users") setUsers(await api.adminUsers(PAGE_SIZE, (page - 1) * PAGE_SIZE, options));
-      if (view === "conversations") setConversations(await api.adminConversations(PAGE_SIZE, (page - 1) * PAGE_SIZE, options));
       if (view === "runs") setRuns(await api.adminAgentRuns(PAGE_SIZE, (page - 1) * PAGE_SIZE, options));
       if (view === "knowledge") setKnowledge(await api.adminKnowledge());
       setOverview(await overviewRequest);
@@ -62,7 +59,6 @@ export function AdminPage() {
     setDraftQuery("");
     setQuery("");
     setFilters({});
-    setSelectedConversation(null);
     setSelectedRun(null);
   }, [view]);
 
@@ -81,31 +77,18 @@ export function AdminPage() {
     }
   }
 
-  async function openConversation(item: AdminConversation) {
-    setLoading(true);
-    try {
-      setSelectedConversation(await api.adminConversation(item.id));
-    } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : t("Không thể mở hội thoại.", "Could not open this conversation."));
-    } finally {
-      setLoading(false);
-    }
-  }
-
   const nav: Array<{ value: View; icon: React.ReactNode; vi: string; en: string }> = [
     { value: "users", icon: <TeamOutlined />, vi: "Người dùng", en: "Users" },
-    { value: "conversations", icon: <CommentOutlined />, vi: "Hội thoại", en: "Conversations" },
     { value: "runs", icon: <RobotOutlined />, vi: "Lượt chạy AI", en: "AI Runs" },
     { value: "knowledge", icon: <BookOutlined />, vi: "Kho tri thức", en: "Knowledge Base" },
   ];
   const descriptions: Record<View, [string, string]> = {
     users: ["Quản lý tài khoản và quyền truy cập", "Manage accounts and access"],
-    conversations: ["Theo dõi và kiểm tra lịch sử hội thoại", "Review conversation history"],
     runs: ["Theo dõi workflow, công cụ và lỗi vận hành", "Monitor workflows, tools, and failures"],
     knowledge: ["Theo dõi corpus PostgreSQL và Qdrant", "Monitor the PostgreSQL corpus and Qdrant"],
   };
   const currentNav = nav.find((item) => item.value === view)!;
-  const total = view === "users" ? users?.total : view === "conversations" ? conversations?.total : runs?.total;
+  const total = view === "users" ? users?.total : runs?.total;
 
   return <main className="admin-page">
     <aside className="admin-sidebar">
@@ -148,11 +131,10 @@ export function AdminPage() {
 
         {view !== "knowledge" && <AdminToolbar view={view} draftQuery={draftQuery} setDraftQuery={setDraftQuery} onSearch={() => { setPage(1); setQuery(draftQuery.trim()); }} filters={filters} setFilters={(next) => { setPage(1); setFilters(next); }} t={t} />}
         {!loading && view === "users" && users && <UsersTable page={users} currentUserId={user.id} onToggle={toggleUser} language={language} t={t} />}
-        {!loading && view === "conversations" && conversations && <ConversationsTable page={conversations} selected={selectedConversation} onOpen={openConversation} language={language} t={t} />}
         {!loading && view === "runs" && runs && <RunsTable page={runs} selected={selectedRun} onSelect={setSelectedRun} language={language} t={t} />}
         {!loading && view === "knowledge" && knowledge && <Knowledge data={knowledge} language={language} t={t} />}
       </Spin>
-      {(view === "users" || view === "conversations" || view === "runs") && <Pagination className="admin-pagination" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} onChange={setPage} />}
+      {(view === "users" || view === "runs") && <Pagination className="admin-pagination" current={page} pageSize={PAGE_SIZE} total={total} showSizeChanger={false} onChange={setPage} />}
     </section>
   </main>;
 }
@@ -168,9 +150,9 @@ function AdminMetrics({ items }: { items: Array<[string, string | number]> }) {
 function AdminToolbar({ view, draftQuery, setDraftQuery, onSearch, filters, setFilters, t }: { view: Exclude<View, "knowledge">; draftQuery: string; setDraftQuery: (value: string) => void; onSearch: () => void; filters: Record<string, string>; setFilters: (value: Record<string, string>) => void; t: Translate }) {
   const set = (key: string, value: string) => setFilters({ ...filters, [key]: value });
   return <section className="admin-toolbar-card">
-    <div className="admin-card-head"><h2>{view === "users" ? t("Quản lý người dùng", "User Management") : view === "conversations" ? t("Quản lý hội thoại", "Conversation Management") : t("Lượt chạy AI", "AI / Agent Runs")}</h2></div>
+    <div className="admin-card-head"><h2>{view === "users" ? t("Quản lý người dùng", "User Management") : t("Lượt chạy AI", "AI / Agent Runs")}</h2></div>
     <div className="admin-toolbar">
-      <Input allowClear prefix={<SearchOutlined />} value={draftQuery} onChange={(event) => setDraftQuery(event.target.value)} onPressEnter={onSearch} placeholder={view === "users" ? t("Tìm theo email hoặc tên", "Search by email or name") : view === "conversations" ? t("Tìm hội thoại hoặc chủ sở hữu", "Search conversation or owner") : t("Tìm user, hội thoại hoặc run ID", "Search user, conversation, or run ID")} />
+      <Input allowClear prefix={<SearchOutlined />} value={draftQuery} onChange={(event) => setDraftQuery(event.target.value)} onPressEnter={onSearch} placeholder={view === "users" ? t("Tìm theo email hoặc tên", "Search by email or name") : t("Tìm người dùng hoặc run ID", "Search user or run ID")} />
       {view === "users" && <><Select allowClear placeholder={t("Tất cả vai trò", "All roles")} value={filters.role || undefined} onChange={(value) => set("role", value || "")} options={[{ value: "admin", label: "Admin" }, { value: "user", label: "User" }]} /><Select allowClear placeholder={t("Mọi phương thức", "All providers")} value={filters.provider || undefined} onChange={(value) => set("provider", value || "")} options={[{ value: "google", label: "Google" }, { value: "local", label: t("Mật khẩu", "Password") }]} /><Select allowClear placeholder={t("Mọi trạng thái", "All status")} value={filters.status || undefined} onChange={(value) => set("status", value || "")} options={[{ value: "active", label: t("Hoạt động", "Active") }, { value: "blocked", label: t("Đã chặn", "Blocked") }]} /></>}
       {view === "runs" && <><Select allowClear placeholder="Intent" value={filters.intent || undefined} onChange={(value) => set("intent", value || "")} options={["FACTUAL", "ITINERARY", "COMPARISON", "CURRENT_INFO", "OUT_OF_SCOPE"].map((value) => ({ value, label: value }))} /><Select allowClear placeholder={t("Mọi chế độ", "All modes")} value={filters.retrieval_mode || undefined} onChange={(value) => set("retrieval_mode", value || "")} options={["RAG_ONLY", "WEB_FIRST", "MIXED", "NO_RETRIEVAL"].map((value) => ({ value, label: value }))} /><Select allowClear placeholder={t("Mọi trạng thái", "All status")} value={filters.status || undefined} onChange={(value) => set("status", value || "")} options={["success", "degraded", "failed", "running"].map((value) => ({ value, label: runStatusLabel(value, t) }))} /></>}
       <Button type="primary" icon={<SearchOutlined />} onClick={onSearch}>{t("Tìm", "Search")}</Button>
@@ -180,14 +162,6 @@ function AdminToolbar({ view, draftQuery, setDraftQuery, onSearch, filters, setF
 
 function UsersTable({ page, currentUserId, onToggle, language, t }: { page: AdminUserPage; currentUserId: string; onToggle: (user: AdminUser) => void; language: string; t: Translate }) {
   return <section className="admin-data-card"><div className="admin-table-wrap"><table><thead><tr><th>{t("Người dùng", "User")}</th><th>Email</th><th>{t("Phương thức", "Provider")}</th><th>{t("Vai trò", "Role")}</th><th>{t("Trạng thái", "Status")}</th><th>{t("Ngày tạo", "Created")}</th><th>{t("Đăng nhập cuối", "Last login")}</th><th /></tr></thead><tbody>{page.items.map((item) => <tr key={item.id}><td><strong>{item.display_name || t("Chưa đặt tên", "Unnamed")}</strong></td><td>{item.email}</td><td>{item.providers.map((value) => value === "local" ? t("Mật khẩu", "Password") : "Google").join(" + ") || "-"}</td><td><span className="admin-badge">{item.is_admin ? "Admin" : "User"}</span></td><td><span className={`admin-badge ${item.is_active ? "ok" : "warn"}`}>{item.is_active ? t("Hoạt động", "Active") : t("Đã chặn", "Blocked")}</span></td><td>{formatDate(item.created_at, language)}</td><td>{item.last_login_at ? formatDate(item.last_login_at, language, true) : "-"}</td><td><Tooltip title={item.id === currentUserId ? t("Không thể khoá chính bạn", "You cannot block yourself") : ""}><Switch size="small" checked={item.is_active} disabled={item.id === currentUserId} onChange={() => void onToggle(item)} /></Tooltip></td></tr>)}</tbody></table></div></section>;
-}
-
-function ConversationsTable({ page, selected, onOpen, language, t }: { page: AdminConversationPage; selected: AdminConversationDetail | null; onOpen: (item: AdminConversation) => void; language: string; t: Translate }) {
-  return <><section className="admin-data-card"><div className="admin-table-wrap"><table><thead><tr><th>{t("Hội thoại", "Conversation")}</th><th>{t("Chủ sở hữu", "Owner")}</th><th>Messages</th><th>Agent Runs</th><th>{t("Ngày tạo", "Created")}</th><th>{t("Cập nhật", "Updated")}</th><th /></tr></thead><tbody>{page.items.map((item) => <tr key={item.id}><td><strong>{item.title || t("Cuộc trò chuyện mới", "New conversation")}</strong><span>{item.id}</span></td><td>{item.user_display_name || item.user_email}</td><td>{item.message_count}</td><td>{item.run_count}</td><td>{formatDate(item.created_at, language)}</td><td>{formatDate(item.last_message_at || item.updated_at, language, true)}</td><td><Button type="link" onClick={() => void onOpen(item)}>{t("Mở", "Open")} →</Button></td></tr>)}</tbody></table></div></section>{selected && <div className="admin-detail-grid"><section className="admin-data-card conversation-preview"><div className="admin-card-head"><h2>{t("Nội dung hội thoại", "Conversation Preview")}</h2><span className="admin-badge">{selected.message_count} messages</span></div><div className="admin-panel-body">{selected.messages.length ? selected.messages.map((message) => <article key={message.id} className={`admin-message ${message.role}`}><div><strong>{message.role === "assistant" ? "Assistant" : message.role === "user" ? "User" : "System"}</strong><time>{formatDate(message.created_at, language, true)}</time></div><p>{message.content}</p></article>) : <Empty description={t("Hội thoại chưa có tin nhắn", "No messages in this conversation")} />}</div></section><Metadata data={selected} t={t} /></div>}</>;
-}
-
-function Metadata({ data, t }: { data: AdminConversationDetail; t: Translate }) {
-  return <section className="admin-data-card admin-metadata"><div className="admin-card-head"><h2>{t("Thông tin hội thoại", "Conversation Metadata")}</h2></div><dl><div><dt>{t("Chủ sở hữu", "Owner")}</dt><dd>{data.user_email}</dd></div><div><dt>Messages</dt><dd>{data.message_count}</dd></div><div><dt>Agent runs</dt><dd>{data.run_count}</dd></div><div><dt>Intent</dt><dd>{data.last_intent || "-"}</dd></div><div><dt>Mode</dt><dd>{data.last_retrieval_mode || "-"}</dd></div></dl></section>;
 }
 
 function RunsTable({ page, selected, onSelect, language, t }: { page: AdminAgentRunPage; selected: AdminAgentRun | null; onSelect: (run: AdminAgentRun) => void; language: string; t: Translate }) {

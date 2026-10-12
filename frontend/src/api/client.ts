@@ -2,8 +2,6 @@ import { SseParser } from "./sse";
 import { localizeNotification } from "../locale/notifications";
 import type {
   AdminAgentRunPage,
-  AdminConversationDetail,
-  AdminConversationPage,
   AdminKnowledge,
   AdminOverview,
   AdminUser,
@@ -240,7 +238,5 @@ export const api = {
     body: JSON.stringify({ is_active: isActive }),
   }),
   adminAgentRuns: (limit = 25, offset = 0, filters: Record<string, string> = {}) => request<AdminAgentRunPage>(`/admin/agent-runs?${new URLSearchParams({ limit: String(limit), offset: String(offset), ...filters })}`),
-  adminConversations: (limit = 25, offset = 0, filters: Record<string, string> = {}) => request<AdminConversationPage>(`/admin/conversations?${new URLSearchParams({ limit: String(limit), offset: String(offset), ...filters })}`),
-  adminConversation: (id: string) => request<AdminConversationDetail>(`/admin/conversations/${id}`),
   adminKnowledge: () => request<AdminKnowledge>("/admin/knowledge"),
 };
