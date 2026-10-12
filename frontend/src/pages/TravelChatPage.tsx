@@ -362,7 +362,7 @@ function ConversationPopover({ anchorRef, onClose, children }: { anchorRef: RefO
 function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) {
   const { t } = useLocale();
   const suggestions = [
-    [t("Kiến thức du lịch", "Travel knowledge"), t("Ga Đà Lạt có gì đặc biệt?", "What is special about Da Lat Railway Station?")],
+    [t("Kiến thức du lịch", "Travel knowledge"), t("Đà Lạt có gì?", "What does Da Lat have to offer?")],
     [t("Gợi ý trải nghiệm", "Recommendations"), t("Ở Huế buổi tối nên đi đâu?", "Where should I go in Hue at night?")],
     [t("So sánh", "Compare"), t("Huế hay Hội An hợp đi 2 ngày hơn?", "Which is better for a two-day trip: Hue or Hoi An?")],
     [t("Lịch trình", "Itinerary"), t("Lên lịch trình Huế 3 ngày.", "Plan a three-day trip to Hue.")],
