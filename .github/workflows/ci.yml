@@ -10,6 +10,12 @@ permissions:
 jobs:
   backend-unit:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/vta_unit
+      JWT_SECRET_KEY: ci-only-secret-that-is-longer-than-32-characters
+      GOOGLE_CLIENT_ID: ci-client-id.apps.googleusercontent.com
+      REDIS_ENABLED: "false"
+      RATE_LIMIT_ENABLED: "false"
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
