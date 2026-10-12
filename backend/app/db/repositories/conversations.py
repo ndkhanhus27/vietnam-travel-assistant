@@ -162,6 +162,31 @@ class ConversationRepository:
         result = await self.session.execute(statement)
         return list(result.scalars().all())
 
+    async def set_message_feedback(
+        self,
+        *,
+        conversation_id: uuid.UUID,
+        message_id: uuid.UUID,
+        user_id: uuid.UUID,
+        feedback: int | None,
+    ) -> Message | None:
+        result = await self.session.execute(
+            select(Message)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Message.id == message_id,
+                Message.conversation_id == conversation_id,
+                Message.role == "assistant",
+                Conversation.user_id == user_id,
+            )
+        )
+        message = result.scalar_one_or_none()
+        if message is None:
+            return None
+        message.feedback = feedback
+        await self.session.flush()
+        return message
+
     async def get_recent_messages(
         self,
         conversation_id: uuid.UUID,

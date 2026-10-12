@@ -156,7 +156,14 @@ class MessageResponse(BaseModel):
     intent: str | None
     citations: list[CitationResponse] | None
     warnings: list[str] | None
+    feedback: Literal[-1, 1] | None = None
     created_at: datetime
+
+
+class MessageFeedbackRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    feedback: Literal[-1, 1] | None
 
 
 class AgentRunResponse(BaseModel):

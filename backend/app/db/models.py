@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -505,6 +506,11 @@ class Message(Base):
     )
     warnings: Mapped[list[str] | None] = mapped_column(
         JSONB,
+        nullable=True,
+    )
+    feedback: Mapped[int | None] = mapped_column(
+        SmallInteger,
+        CheckConstraint("feedback IN (-1, 1)", name="ck_messages_feedback"),
         nullable=True,
     )
 

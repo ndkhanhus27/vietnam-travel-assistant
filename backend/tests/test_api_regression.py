@@ -357,6 +357,32 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("node", payload)
         self.assertNotIn("chain_of_thought", payload)
 
+    async def test_assistant_feedback_is_persisted_and_owner_scoped(self) -> None:
+        owner_id, other_id = await self._create_users("feedback")
+        conversation_id = await self._create_conversation(owner_id)
+        chat = await self.client.post(
+            f"/api/v1/conversations/{conversation_id}/messages",
+            headers=self._user_headers(owner_id),
+            json={"content": "Lap lich Da Lat 3 ngay"},
+        )
+        assistant_id = chat.json()["assistant_message"]["id"]
+        endpoint = f"/api/v1/conversations/{conversation_id}/messages/{assistant_id}/feedback"
+
+        foreign = await self.client.patch(
+            endpoint,
+            headers=self._user_headers(other_id),
+            json={"feedback": 1},
+        )
+        updated = await self.client.patch(
+            endpoint,
+            headers=self._user_headers(owner_id),
+            json={"feedback": -1},
+        )
+
+        self.assertEqual(foreign.status_code, 404)
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["feedback"], -1)
+
     async def test_admin_conversation_and_filter_endpoints_use_real_data(self):
         admin_id, owner_id = await self._create_users("admin-console")
         async with AsyncSessionFactory.begin() as session:

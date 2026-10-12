@@ -13,6 +13,7 @@ from app.api.schemas import (
     ConversationResponse,
     CreateConversationRequest,
     MessageResponse,
+    MessageFeedbackRequest,
     UpdateConversationRequest,
 )
 from app.db.models import Conversation, Message, User
@@ -177,6 +178,35 @@ async def list_conversation_messages(
         conversation_id,
         current_user.id,
     )
+
+
+@router.patch(
+    "/{conversation_id}/messages/{message_id}/feedback",
+    response_model=MessageResponse,
+    responses={404: {"description": "Assistant message not found"}},
+)
+async def update_message_feedback(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    payload: MessageFeedbackRequest,
+    current_user: Annotated[User, Depends(get_current_user)],
+    repository: Annotated[ConversationRepository, Depends(get_conversation_repository)],
+) -> Message:
+    try:
+        message = await repository.set_message_feedback(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            user_id=current_user.id,
+            feedback=payload.feedback,
+        )
+        if message is None:
+            raise ConversationNotFoundError("Assistant message not found")
+        await repository.session.commit()
+        await repository.session.refresh(message)
+        return message
+    except Exception:
+        await repository.session.rollback()
+        raise
 
 
 async def _get_owned_conversation(
