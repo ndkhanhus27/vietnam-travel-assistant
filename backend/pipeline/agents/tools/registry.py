@@ -4,7 +4,6 @@ import logging
 from typing import TYPE_CHECKING
 
 from pipeline.agents.schemas import (
-    BudgetRequest,
     ResearchDepth,
     SubTask,
     TaskStatus,
@@ -13,7 +12,6 @@ from pipeline.agents.schemas import (
     WeatherRequest,
 )
 
-from .budget import BudgetTool, normalize_budget_arguments
 from .distance_matrix import DistanceMatrixTool
 from .map_location import MapLocationTool
 from .routing import RoutingTool
@@ -47,7 +45,6 @@ class ToolRegistry:
         - search_travel_knowledge
         - web_search
         - weather
-        - budget_calculator
         - map_location
         - routing
         - distance_matrix
@@ -82,10 +79,6 @@ class ToolRegistry:
 
         self._weather: (
             WeatherTool | None
-        ) = None
-
-        self._budget: (
-            BudgetTool | None
         ) = None
 
         self._map_location_tool = (
@@ -149,19 +142,6 @@ class ToolRegistry:
             )
 
         return self._weather
-
-    @property
-    def budget(
-        self,
-    ) -> BudgetTool:
-
-        if self._budget is None:
-
-            self._budget = (
-                BudgetTool()
-            )
-
-        return self._budget
 
     @property
     def map_location_tool(
@@ -463,47 +443,6 @@ class ToolRegistry:
         )
 
     # ========================================================
-    # BUDGET
-    # ========================================================
-
-    def _execute_budget(
-        self,
-        task: SubTask,
-    ) -> ToolObservation:
-
-        try:
-
-            request = (
-                BudgetRequest
-                .model_validate(
-                    normalize_budget_arguments(task.arguments)
-                )
-            )
-
-        except Exception as exc:
-
-            logger.warning(
-                "Budget argument normalization failure",
-                extra={"argument_fields": sorted(task.arguments)},
-            )
-
-            return self._failed(
-                task=task,
-
-                message=(
-                    "Budget arguments không hợp lệ: "
-                    f"{type(exc).__name__}: "
-                    f"{exc}"
-                ),
-            )
-
-        return self.budget.execute(
-            task_id=task.task_id,
-
-            request=request,
-        )
-
-    # ========================================================
     # PUBLIC EXECUTE
     # ========================================================
 
@@ -545,15 +484,6 @@ class ToolRegistry:
             ):
 
                 return self._execute_weather(
-                    task
-                )
-
-            if (
-                task.tool
-                == ToolName.BUDGET
-            ):
-
-                return self._execute_budget(
                     task
                 )
 

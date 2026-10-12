@@ -6,6 +6,7 @@ from pipeline.agents.schemas import (
     EvidenceItem,
     EvidenceSource,
     ToolObservation,
+    ToolName,
 )
 
 from .utils import normalize_text
@@ -28,8 +29,6 @@ class ResearchEvidenceAggregator:
         - WEATHER
         - ROUTING
         - MAP
-        - BUDGET / CALCULATION
-
     Specialized tool observations được giữ riêng
     và truyền trực tiếp sang Reasoner/Synthesizer.
 
@@ -393,7 +392,7 @@ class ResearchEvidenceAggregator:
         """
         Aggregate research evidence từ ToolObservations.
 
-        Weather / Routing / Map / Budget evidence
+        Weather / Routing / Map evidence
         nếu xuất hiện trong observations
         sẽ bị bỏ qua ở đây.
 
@@ -498,6 +497,19 @@ class ResearchEvidenceAggregator:
             EvidenceItem
         ] = []
 
+        # Reserve direct web evidence before RAG enrichment consumes the cap.
+        for observation in observations:
+            if observation.tool != ToolName.WEB_SEARCH:
+                continue
+            candidates = self._sort_same_source([
+                item for item in observation.evidence
+                if item.source_type == EvidenceSource.WEB
+            ])
+            if candidates and not any(item.evidence_id == candidates[0].evidence_id for item in result):
+                result.append(candidates[0])
+            if len(result) >= self.max_total:
+                break
+
         positions = {
             key: 0
             for key in entity_order
@@ -526,13 +538,12 @@ class ResearchEvidenceAggregator:
                 ):
                     continue
 
-                result.append(
-                    items[position]
-                )
-
                 positions[key] += 1
-
                 added_any = True
+
+                if any(item.evidence_id == items[position].evidence_id for item in result):
+                    continue
+                result.append(items[position])
 
                 if (
                     len(result)

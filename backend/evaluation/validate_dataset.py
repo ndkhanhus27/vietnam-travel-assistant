@@ -19,7 +19,6 @@ VALID_INTENTS = {
     "WEATHER",
     "ROUTING",
     "CURRENT_INFO",
-    "BUDGET",
     "OUT_OF_SCOPE",
 }
 
@@ -29,7 +28,6 @@ VALID_TOOLS = {
     "weather",
     "map_location",
     "routing",
-    "budget_calculator",
     "distance_matrix",
 }
 

@@ -116,14 +116,12 @@ class TravelSynthesizer:
         ToolName.WEATHER: EvidenceSource.WEATHER,
         ToolName.MAP_LOCATION: EvidenceSource.MAP,
         ToolName.ROUTING: EvidenceSource.ROUTING,
-        ToolName.BUDGET: EvidenceSource.CALCULATION,
     }
 
     _TOOL_TITLES: dict[ToolName, str] = {
         ToolName.WEATHER: "Weather",
         ToolName.MAP_LOCATION: "Map location",
         ToolName.ROUTING: "Routing",
-        ToolName.BUDGET: "Budget calculation",
     }
 
     _SPECIALIZED_TOOLS = frozenset(
@@ -386,6 +384,18 @@ structured answer plan and source data.
 
 Use ReasonerOutput as the primary answer structure.
 
+For compound questions, preserve every requested outcome and every explicit
+limitation section from ReasonerOutput. Do not drop events/current-info or
+routing just because ITINERARY is the primary intent. If an event could not
+be verified for the requested dates, say so in an events section, not only
+in a generic final warning. Missing evidence never means no events exist.
+Never replace an unavailable forecast with different dates or label an
+article's route estimate as a successful routing API calculation.
+For weekend events, preserve exact-date uncertainty. A monthly schedule or
+week number alone does not confirm occurrence on the requested days. If
+only a broader schedule is available, label it as a lead with dates still
+unverified, and explicitly answer that weekend events are not confirmed.
+
 You may enrich each section with additional relevant details from the
 supplied research evidence and successful tool observations, provided
 every added factual claim is grounded and correctly cited.
@@ -405,7 +415,7 @@ For each factual point:
 - Prefer the smallest sufficient citation set.
 
 For RAG and Web research, use evidence markers only. Tool markers are
-reserved for weather, budget, routing, and map observations.
+reserved for weather, routing, and map observations.
 
 FRESHNESS POLICY:
 
@@ -511,7 +521,7 @@ Citation rules:
 1. For a claim grounded in research evidence, append the exact marker
    [[evidence:<evidence_id>]].
 
-2. For weather, budget, routing, map, or other specialized tool facts,
+2. For weather, routing, map, or other specialized tool facts,
    append the exact marker [[tool:<task_id>]].
 
 3. Use only IDs present in the supplied source data.

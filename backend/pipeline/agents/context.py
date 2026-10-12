@@ -207,12 +207,6 @@ class ContextBuilder:
         Intent.WEATHER: frozenset({"destination"}),
         Intent.ROUTING: frozenset({"origin", "destination"}),
         Intent.CURRENT_INFO: frozenset({"destination"}),
-        Intent.BUDGET: frozenset({
-            "destination",
-            "trip_duration",
-            "travelers",
-            "budget",
-        }),
     }
 
     def __init__(

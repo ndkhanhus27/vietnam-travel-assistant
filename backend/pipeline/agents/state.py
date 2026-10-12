@@ -56,7 +56,7 @@ class AgentState(TypedDict, total=False):
     ]
 
     # Chỉ RAG + WEB.
-    # Weather / Routing / Budget vẫn nằm trong observations.
+    # Weather / Routing vẫn nằm trong observations.
     research_evidence: list[
         EvidenceItem
     ]

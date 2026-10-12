@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import unicodedata
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from google.genai import types
@@ -82,6 +83,11 @@ class PlannerConstraintDraft(StrictModel):
     explicit: bool = True
 
 
+class WebSearchDraft(StrictModel):
+    query: str = Field(min_length=1)
+    entity: str | None = None
+
+
 class PlannerDraft(BaseModel):
     """
     Semantic interpretation trực tiếp từ Gemini.
@@ -137,7 +143,10 @@ class PlannerDraft(BaseModel):
 
     needs_routing: bool = False
 
-    needs_budget: bool = False
+    web_search_requests: list[WebSearchDraft] = Field(default_factory=list)
+    weather_requests: list[WeatherRequest] = Field(default_factory=list)
+    routing_requests: list[RoutingRequest] = Field(default_factory=list)
+    travel_knowledge_query: str | None = None
 
     # --------------------------------------------------------
     # WEATHER SEMANTICS
@@ -193,7 +202,6 @@ class TravelPlanner:
         - gọi Tavily
         - gọi Weather API
         - gọi Routing API
-        - tính budget
         - trả lời user
 
     Planner chỉ tạo ExecutionPlan.
@@ -252,6 +260,9 @@ class TravelPlanner:
 
         input_context = {
             "current_user_message": query,
+            "current_local_date": self._local_today().isoformat(),
+            "timezone": "Asia/Ho_Chi_Minh",
+            "current_weekday": self._local_today().strftime("%A"),
             "conversation_context": (
                 conversation_context
             ),
@@ -407,16 +418,6 @@ Examples:
 
 ------------------------------------------------------------
 
-BUDGET
-
-- tính tổng chi phí
-- ngân sách có đủ không
-- chia ngân sách
-- ước tính chi phí chuyến đi
-
-
-------------------------------------------------------------
-
 OUT_OF_SCOPE
 
 Không thuộc travel và không phải
@@ -485,16 +486,6 @@ khi cần:
 
 ------------------------------------------------------------
 
-needs_budget = true
-
-khi query cần:
-
-- calculation
-- budget assessment
-- total cost
-
-
-============================================================
 WEATHER TEMPORAL PARSING
 ============================================================
 
@@ -588,12 +579,81 @@ Ví dụ:
 COMPOUND QUERY
 ============================================================
 
+Choose ONE primary intent from the user's main deliverable, then preserve
+EVERY independent request with capability flags and typed request lists.
+ITINERARY remains ITINERARY when weather, events or routing are also asked.
+Do not replace it with CURRENT_INFO simply because one part needs fresh data.
+RECOMMENDATION and COMPARISON can also need several tools.
+
+DECOMPOSITION CONTRACT:
+- Stable history, architecture, attractions and travel knowledge -> RAG.
+- Actual rain, temperatures or forecasts -> Weather, never web estimates.
+- Current events, festivals, opening status, hours and prices -> Web Search.
+- Actual distance and travel time for explicit endpoints -> Routing.
+- General conversation or out-of-scope requests do not need travel tools.
+- Do not call every tool by default; select tools for the actual requests.
+- A date alone does not require web: "rain tomorrow" needs Weather.
+- "co su kien gi" / "có sự kiện gì" needs Web even inside an itinerary.
+
+travel_knowledge_query: a focused query for the stable travel part only.
+For the Hue example, ask for a three-day itinerary with Dai Noi and Khai Dinh.
+Exclude current events, forecast and exact route-duration questions, because
+those have dedicated tool tasks. RAG must not web-fallback for those clauses.
+
+web_search_requests: one entry per independent current-information question.
+Each query must contain ONLY that question's subject, location and relevant
+calendar dates/year. Exclude itinerary, weather and route clauses.
+Use entity only for that search's actual subject, not all travel entities.
+For events in Hue, entity is Hue; Dai Noi and Khai Dinh belong to routing.
+Two independent current questions, such as events and admission prices,
+require two focused web entries. Do not merge them into one broad query.
+
+weather_requests: one WeatherRequest per location/time range explicitly
+asked about, with location, mode, offsets, time_expression and original_query.
+Do not combine two cities into one location or use the first attraction
+as the weather location. Trip duration is not a forecast date offset.
+
+routing_requests: one RoutingRequest per explicit requested route, using
+origin={{"query": "..."}}, destination={{"query": "..."}} and mode.
+Use named endpoints, never invented coordinates. Keep the trip destination
+constraint separate: destination=Hue for an itinerary, while the route
+destination may be Khai Dinh. Do not invent itinerary legs before retrieval.
+Missing endpoints should be clarified; do not invent them.
+
+semantic_subtasks must name ALL requested outcomes, including the itinerary
+itself and each current question. A missing search result must later be
+reported explicitly, never silently dropped or treated as "no events".
+
+DATE CONTRACT:
+Use current_local_date and current_weekday supplied in INPUT.
+Resolve "this weekend" as Saturday-Sunday of the current local week.
+On Sunday, use today's Sunday; "next weekend" means the following week.
+For a 3-day trip "this weekend" without explicit start/end dates, do not
+silently turn tomorrow into day 1. Check weather for the weekend and preserve
+the three-day reference itinerary without inventing an exact third date.
+Do not clamp dates to the provider forecast horizon. Unsupported forecasts
+must remain unsupported, rather than reporting a different date range.
+Web queries should use concrete dates; WeatherRequest uses offsets only.
+
+Example with current_local_date=2026-10-12 (Monday):
+"Lên lịch Huế 3 ngày cuối tuần này, xem có mưa không, có sự kiện gì
+và từ Đại Nội đến lăng Khải Định đi mất bao lâu?"
+intent=ITINERARY, is_compound=true, all four capability flags=true.
+web_search_requests=[{{"query":"Sự kiện lễ hội Huế ngày 17-18/10/2026",
+"entity":"Huế"}}].
+weather_requests=[{{"location":"Huế", "mode":"FORECAST_RANGE",
+"start_offset_days":5, "end_offset_days":6,
+"time_expression":"cuối tuần này", "original_query":"Huế cuối tuần có mưa không?"}}].
+routing_requests=[{{"origin":{{"query":"Đại Nội Huế"}},
+"destination":{{"query":"Lăng Khải Định Huế"}}, "mode":"car"}}].
+These are four independent tasks, not one itinerary search.
+
 Một query có thể cần nhiều capability.
 
 Ví dụ:
 
 "Lập lịch Đà Nẵng 3 ngày tuần sau,
-xem thời tiết và kiểm tra 5 triệu có đủ không"
+xem thời tiết và gợi ý cách di chuyển giữa các điểm chính"
 
 Có thể:
 
@@ -601,7 +661,7 @@ intent = ITINERARY
 
 needs_travel_knowledge = true
 needs_weather = true
-needs_budget = true
+needs_routing = true
 
 is_compound = true
 
@@ -689,7 +749,7 @@ Pending clarification:
 trip_duration
 
 Current message:
-"3 ngày, đi với vợ, khoảng 6 triệu."
+"3 ngày, đi với vợ, thích đi nhẹ nhàng."
 
 Resolved request remains an ITINERARY request for Đà Lạt.
 
@@ -697,7 +757,7 @@ The CURRENT message contributes:
 
 trip_duration = "3 ngày"
 travelers = 2
-budget = 6000000
+pace = "nhẹ nhàng"
 
 The previous destination "Đà Lạt" comes from conversation context.
 
@@ -730,7 +790,6 @@ trip_duration
 travel_date
 travel_date_range
 travelers
-budget
 interests
 activity_preferences
 food_preferences
@@ -750,10 +809,10 @@ Examples:
 → destination = "Đà Lạt"
 → trip_duration = "3 ngày"
 
-"Hai vợ chồng đi Đà Lạt khoảng 6 triệu"
+"Hai vợ chồng đi Đà Lạt nhẹ nhàng"
 → destination = "Đà Lạt"
 → travelers = 2
-→ budget = 6000000
+→ pace = "nhẹ nhàng"
 
 "Tôi thích thiên nhiên, không thích check-in"
 → interests = ["thiên nhiên"]
@@ -823,7 +882,7 @@ RULES:
 - Extract only information supported by the current user message.
 - Do not invent defaults.
 - Do not emit missing or unknown constraints.
-- Do not guess budget, number of travelers, duration, dates,
+- Do not guess number of travelers, duration, dates,
   preferences, origin, or destination.
 - Set explicit=true when the user directly states the value.
 - Preserve useful user constraints even if they are not required by
@@ -843,14 +902,14 @@ Có thể mô tả các nhu cầu độc lập.
 Ví dụ:
 
 "Lập lịch Đà Nẵng 3 ngày,
-xem thời tiết và kiểm tra 5 triệu có đủ không"
+xem thời tiết và tính đường giữa các điểm chính"
 
 semantic_subtasks:
 
 [
     "Tìm thông tin du lịch Đà Nẵng",
     "Kiểm tra thời tiết Đà Nẵng",
-    "Đánh giá ngân sách 5 triệu"
+    "Tính đường giữa các điểm chính"
 ]
 
 
@@ -867,7 +926,6 @@ travel_knowledge
 weather
 web_search
 routing
-budget
 
 
 Ví dụ WEATHER:
@@ -903,7 +961,6 @@ Không invent:
 - coordinates
 - route
 - weather result
-- budget values user không cung cấp
 
 
 ============================================================
@@ -1035,6 +1092,42 @@ INPUT
         )
         return folded.replace("đ", "d")
 
+    @staticmethod
+    def _local_today():
+        return datetime.now(timezone(timedelta(hours=7))).date()
+
+    @classmethod
+    def _resolve_weather_dates(cls, request: WeatherRequest) -> WeatherRequest:
+        expression = cls._fold_text(request.time_expression or "")
+        if expression.strip() not in {"cuoi tuan nay", "this weekend", "cuoi tuan sau", "next weekend"}:
+            return request
+        today = cls._local_today()
+        start = max(0, 5 - today.weekday())
+        end = 6 - today.weekday()
+        if expression.strip() in {"cuoi tuan sau", "next weekend"}:
+            start = 12 - today.weekday()
+            end = 13 - today.weekday()
+        return request.model_copy(update={
+            "mode": WeatherMode.FORECAST_RANGE,
+            "start_offset_days": start,
+            "end_offset_days": end,
+        })
+
+    @classmethod
+    def _resolve_search_dates(cls, query: str) -> str:
+        today = cls._local_today()
+        current_start = today + timedelta(days=max(0, 5 - today.weekday()))
+        current_end = today + timedelta(days=6 - today.weekday())
+        next_start = today + timedelta(days=12 - today.weekday())
+        next_end = today + timedelta(days=13 - today.weekday())
+        for pattern, start, end in (
+            (r"cuối tuần này|this weekend", current_start, current_end),
+            (r"cuối tuần sau|next weekend", next_start, next_end),
+        ):
+            query = re.sub(pattern, f"ngày {start:%d/%m/%Y} đến {end:%d/%m/%Y}",
+                           query, flags=re.IGNORECASE)
+        return query
+
     @classmethod
     def _response_modifier(cls, query: str) -> ResponseModifier | None:
         """Recognize only clear, standalone refinement requests."""
@@ -1136,9 +1229,12 @@ INPUT
                     "needs_weather": False,
                     "needs_web_search": False,
                     "needs_routing": False,
-                    "needs_budget": False,
                     "semantic_subtasks": [],
                     "tool_arguments": {},
+                    "web_search_requests": [],
+                    "weather_requests": [],
+                    "routing_requests": [],
+                    "travel_knowledge_query": None,
                 }
             )
 
@@ -1165,10 +1261,13 @@ INPUT
                     "needs_weather": active_intent == Intent.WEATHER,
                     "needs_web_search": active_intent == Intent.CURRENT_INFO,
                     "needs_routing": active_intent == Intent.ROUTING,
-                    "needs_budget": active_intent == Intent.BUDGET,
                     "semantic_subtasks": [],
                     "tool_arguments": {},
                     "constraints": [],
+                    "web_search_requests": [],
+                    "weather_requests": [],
+                    "routing_requests": [],
+                    "travel_knowledge_query": None,
                 }
             )
             logger.info(
@@ -1197,6 +1296,11 @@ INPUT
             effective_intent
             in {Intent.FACTUAL_TRAVEL, Intent.RECOMMENDATION, Intent.CURRENT_INFO}
             and self._requires_fresh_web(query)
+            and not draft.is_compound
+            and not draft.needs_weather
+            and not draft.weather_requests
+            and not draft.needs_routing
+            and not draft.routing_requests
         ):
             update.update(
                 {
@@ -1209,6 +1313,18 @@ INPUT
 
         entities = update.get("entities", draft.entities)
         update["entities"] = self._strengthen_specific_entities(query, entities)
+        if effective_intent not in {Intent.GENERAL, Intent.OUT_OF_SCOPE} and modifier is None:
+            if draft.web_search_requests:
+                update["needs_web_search"] = True
+            if draft.weather_requests:
+                update["needs_weather"] = True
+            if draft.routing_requests:
+                update["needs_routing"] = True
+            capability_count = sum(bool(update.get(key, getattr(draft, key))) for key in (
+                "needs_travel_knowledge", "needs_web_search", "needs_weather", "needs_routing"
+            ))
+            if capability_count > 1:
+                update["is_compound"] = True
         return draft.model_copy(update=update)
 
     @classmethod
@@ -1411,10 +1527,15 @@ INPUT
         query: str,
         entities: list[str],
         task_id: str,
+        request: WebSearchDraft | None = None,
     ) -> SubTask:
-        search_query = query.strip()
+        search_query = self._resolve_search_dates(
+            request.query.strip() if request is not None else query.strip()
+        )
         clean_entities = self._unique_strings(
-            entities
+            [request.entity] if request is not None and request.entity else (
+                [] if request is not None else entities
+            )
         )
 
         if clean_entities:
@@ -1438,7 +1559,7 @@ INPUT
 
         return self._task(
             task_id=task_id,
-            description="Tìm thông tin fresh/current",
+            description=f"Kiểm tra thông tin mới: {search_query}",
             tool=ToolName.WEB_SEARCH,
             arguments=arguments,
         )
@@ -1668,7 +1789,7 @@ INPUT
             # không tin LLM cho các field policy.
             rag_arguments[
                 "query"
-            ] = query
+            ] = (draft.travel_knowledge_query or query).strip()
 
             rag_arguments[
                 "entities"
@@ -1703,6 +1824,7 @@ INPUT
 
         needs_weather = (
             draft.needs_weather
+            or bool(draft.weather_requests)
             or draft.intent
             == Intent.WEATHER
         )
@@ -1710,7 +1832,7 @@ INPUT
         if pure_current_info:
             needs_weather = False
 
-        if needs_weather:
+        if needs_weather and not draft.weather_requests:
 
             raw_weather_args = dict(
                 draft.tool_arguments.get(
@@ -1776,7 +1898,7 @@ INPUT
                 )
 
                 weather_arguments = (
-                    weather_request
+                    self._resolve_weather_dates(weather_request)
                     .model_dump(
                         mode="json"
                     )
@@ -1842,24 +1964,44 @@ INPUT
                 )
             )
 
+        if needs_weather and draft.weather_requests:
+            for request in draft.weather_requests:
+                request = self._resolve_weather_dates(request)
+                subtasks.append(self._task(
+                    task_id=next_id(),
+                    description=f"Kiểm tra thời tiết {request.location}: {request.time_expression or request.mode.value}",
+                    tool=ToolName.WEATHER,
+                    arguments=request.model_dump(mode="json"),
+                ))
+
         # ====================================================
         # CURRENT / FRESH WEB DATA
         # ====================================================
 
         needs_web = (
             draft.needs_web_search
+            or bool(draft.web_search_requests)
             or draft.intent
             == Intent.CURRENT_INFO
         )
 
         if needs_web:
-            subtasks.append(
-                self._build_current_info_task(
-                    task_id=next_id(),
-                    query=query,
-                    entities=entities,
+            requests = list(draft.web_search_requests)
+            if not requests:
+                hints = draft.tool_arguments.get("web_search", {})
+                if isinstance(hints.get("query"), str) and hints["query"].strip():
+                    requests = [WebSearchDraft.model_validate({
+                        "query": hints["query"], "entity": hints.get("entity")
+                    })]
+            for request in requests or [None]:
+                subtasks.append(
+                    self._build_current_info_task(
+                        task_id=next_id(),
+                        query=query,
+                        entities=entities,
+                        request=request,
+                    )
                 )
-            )
 
         # ====================================================
         # ROUTING
@@ -1867,6 +2009,7 @@ INPUT
 
         needs_routing = (
             draft.needs_routing
+            or bool(draft.routing_requests)
             or draft.intent
             == Intent.ROUTING
         )
@@ -1874,7 +2017,15 @@ INPUT
         if pure_current_info:
             needs_routing = False
 
-        if needs_routing:
+        if needs_routing and draft.routing_requests:
+            for request in draft.routing_requests:
+                subtasks.append(self._task(
+                    task_id=next_id(),
+                    description=f"Tính tuyến từ {request.origin.query} đến {request.destination.query}",
+                    tool=ToolName.ROUTING,
+                    arguments=request.model_dump(mode="json"),
+                ))
+        elif needs_routing:
 
             routing_task = self._build_routing_task(
                 constraints=constraints,
@@ -1883,55 +2034,6 @@ INPUT
 
             if routing_task is not None:
                 subtasks.append(routing_task)
-
-        # ====================================================
-        # BUDGET
-        # ====================================================
-
-        needs_budget = (
-            draft.needs_budget
-            or draft.intent
-            == Intent.BUDGET
-        )
-
-        if pure_current_info:
-            needs_budget = False
-
-        if needs_budget:
-
-            budget_arguments = dict(
-                draft.tool_arguments.get(
-                    "budget",
-                    {},
-                )
-            )
-
-            budget_arguments[
-                "query"
-            ] = query
-
-            budget_arguments[
-                "entities"
-            ] = entities
-
-            subtasks.append(
-                self._task(
-                    task_id=next_id(),
-
-                    description=(
-                        "Tính toán hoặc "
-                        "đánh giá ngân sách"
-                    ),
-
-                    tool=(
-                        ToolName.BUDGET
-                    ),
-
-                    arguments=(
-                        budget_arguments
-                    ),
-                )
-            )
 
         # Pure response refinements can reuse the bounded, selected
         # support persisted with the active task. ADD_OPTIONS intentionally

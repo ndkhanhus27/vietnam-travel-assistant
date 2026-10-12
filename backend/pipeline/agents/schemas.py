@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from enum import Enum
 from typing import Any
 
@@ -8,7 +7,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    field_validator,
     model_validator,
 )
 
@@ -55,7 +53,6 @@ class Intent(str, Enum):
     WEATHER = "WEATHER"
     ROUTING = "ROUTING"
     CURRENT_INFO = "CURRENT_INFO"
-    BUDGET = "BUDGET"
 
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
@@ -151,8 +148,6 @@ class ToolName(str, Enum):
     ROUTING = "routing"
 
     DISTANCE_MATRIX = "distance_matrix"
-
-    BUDGET = "budget_calculator"
 
 
 # ============================================================
@@ -814,7 +809,7 @@ class ToolObservation(StrictModel):
     - Tavily
     - Weather
     - Routing
-    - Budget
+    - specialized tools
 
     LangGraph chỉ làm việc với contract này.
     """
@@ -1157,113 +1152,3 @@ class AgentResponse(StrictModel):
             )
 
         return self
-    
-# ============================================================
-# BUDGET
-# ============================================================
-
-
-class BudgetRequest(StrictModel):
-    """
-    Deterministic budget calculation input.
-
-    Tất cả cost field là TOTAL cost cho toàn chuyến đi,
-    không phải cost/ngày hoặc cost/người.
-
-    BudgetTool không được tự đoán giá.
-    """
-
-    currency: str = "VND"
-
-    travelers: int = Field(
-        default=1,
-        ge=1,
-    )
-
-    days: int = Field(
-        default=1,
-        ge=1,
-    )
-
-    total_budget: float | None = Field(
-        default=None,
-        ge=0,
-    )
-
-    intercity_transport_cost: float = Field(
-        default=0,
-        ge=0,
-    )
-
-    accommodation_cost: float = Field(
-        default=0,
-        ge=0,
-    )
-
-    food_cost: float = Field(
-        default=0,
-        ge=0,
-    )
-
-    ticket_cost: float = Field(
-        default=0,
-        ge=0,
-    )
-
-    local_transport_cost: float = Field(
-        default=0,
-        ge=0,
-    )
-
-    other_cost: float = Field(
-        default=0,
-        ge=0,
-    )
-
-    original_query: str | None = None
-
-    @field_validator(
-        "total_budget",
-        "intercity_transport_cost",
-        "accommodation_cost",
-        "food_cost",
-        "ticket_cost",
-        "local_transport_cost",
-        "other_cost",
-        mode="before",
-    )
-    @classmethod
-    def normalize_money_amount(cls, value: Any) -> Any:
-        if value is None or isinstance(value, (int, float)):
-            return value
-        if not isinstance(value, str):
-            return value
-
-        text_value = value.strip().casefold()
-        if not text_value:
-            return value
-
-        multiplier = 1.0
-        units = (
-            (("tỷ", "ty"), 1_000_000_000.0),
-            (("triệu", "trieu"), 1_000_000.0),
-            (("nghìn", "nghin", "ngàn", "ngan", "k"), 1_000.0),
-        )
-        for names, candidate_multiplier in units:
-            if any(re.search(rf"\b{re.escape(name)}\b", text_value) for name in names):
-                multiplier = candidate_multiplier
-                break
-
-        numeric_text = re.sub(r"[^0-9,.-]", "", text_value)
-        if not numeric_text:
-            return value
-
-        if multiplier != 1.0:
-            numeric_text = numeric_text.replace(".", "").replace(",", ".")
-        else:
-            numeric_text = numeric_text.replace(".", "").replace(",", "")
-
-        try:
-            return float(numeric_text) * multiplier
-        except ValueError:
-            return value

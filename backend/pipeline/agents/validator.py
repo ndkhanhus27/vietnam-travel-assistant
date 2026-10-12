@@ -59,9 +59,6 @@ class AgentValidator:
         "WEATHER_FORECAST_OUT_OF_RANGE",
         "WEATHER_HISTORY_UNSUPPORTED",
 
-        # Budget requires normalized cost estimates upstream.
-        "BUDGET_INPUT_INSUFFICIENT",
-
         # Structural dependency error propagated by executor.
         "DEPENDENCY_FAILED",
 
@@ -382,14 +379,22 @@ class AgentValidator:
         observations: list[ToolObservation],
         research_evidence: list[EvidenceItem],
     ) -> list[ValidationIssue]:
-        if plan.intent != Intent.CURRENT_INFO:
-            return []
-
         web_tasks = [
             task
             for task in plan.subtasks
             if task.tool == ToolName.WEB_SEARCH
         ]
+
+        if plan.intent != Intent.CURRENT_INFO and not web_tasks:
+            return []
+
+        if len(web_tasks) > 1:
+            return [issue for task in web_tasks
+                    for issue in AgentValidator._validate_current_info(
+                        plan=plan.model_copy(update={"subtasks": [task]}),
+                        observations=observations,
+                        research_evidence=research_evidence,
+                    )]
 
         if not web_tasks:
             return [
@@ -416,24 +421,19 @@ class AgentValidator:
             )
         ]
 
-        if not successful_web:
-            return [
-                ValidationIssue(
-                    code="CURRENT_INFO_WEB_FAILED",
-                    message=(
-                        "CURRENT_INFO Web Search did not complete "
-                        "successfully."
-                    ),
-                    task_id=web_tasks[0].task_id,
-                    recoverable=True,
-                )
-            ]
+        missing_tasks = web_task_ids - {item.task_id for item in successful_web}
+        if missing_tasks:
+            return [ValidationIssue(
+                code="CURRENT_INFO_WEB_FAILED",
+                message=f"Current-information request was not retrieved: {task.description}",
+                task_id=task.task_id,
+                recoverable=True,
+            ) for task in web_tasks if task.task_id in missing_tasks]
 
-        web_evidence = [
-            item
-            for item in research_evidence
-            if item.source_type == EvidenceSource.WEB
-        ]
+        # RAG web enrichment must not satisfy an unrelated direct web request.
+        direct_ids = {item.evidence_id for observation in successful_web for item in observation.evidence}
+        web_evidence = [item for item in research_evidence
+                        if item.source_type == EvidenceSource.WEB and item.evidence_id in direct_ids]
 
         if not web_evidence:
             return [
@@ -776,7 +776,6 @@ class AgentValidator:
             ToolName.ROUTING,
             ToolName.MAP_LOCATION,
             ToolName.DISTANCE_MATRIX,
-            ToolName.BUDGET,
         }
 
         for observation in (

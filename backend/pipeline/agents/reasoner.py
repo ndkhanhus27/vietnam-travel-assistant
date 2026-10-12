@@ -21,9 +21,9 @@ from pipeline.agents.schemas import (
     ReasonerOutput,
     ReasonerPoint,
     ReasonerSection,
-    TaskStatus,
     ToolName,
     ToolObservation,
+    TaskStatus,
     ValidationResult,
 )
 from pipeline.agents.tools.utils import format_tool_data_for_presentation
@@ -52,7 +52,6 @@ class TravelReasoner:
     Reasoner KHÔNG:
         - execute tools
         - retrieve documents
-        - calculate budget itself
         - invent weather/routing data
         - write final prose answer
         - expose/store chain-of-thought
@@ -65,7 +64,6 @@ class TravelReasoner:
             ToolName.WEATHER,
             ToolName.MAP_LOCATION,
             ToolName.ROUTING,
-            ToolName.BUDGET,
         }
     )
 
@@ -440,6 +438,7 @@ class TravelReasoner:
                     "required": (
                         task.required
                     ),
+                    "arguments": task.arguments,
                 }
                 for task in plan.subtasks
             ],
@@ -455,6 +454,8 @@ class TravelReasoner:
             "tool_observations": (
                 observation_context
             ),
+            "allowed_observation_task_ids": [item.task_id for item in observations
+                                             if item.tool in self._SPECIALIZED_TOOLS],
         }
 
         return f"""
@@ -475,11 +476,12 @@ Rules:
 2. When using a research claim, reference only evidence_id values that
    actually exist in research_evidence.
 
-3. Weather, budget, routing, map, and other specialized tool facts must
+3. Weather, routing, map, and other specialized tool facts must
    be grounded in tool_observations.
 
-4. When using specialized tool information, reference only task_id values
-   that actually exist in tool_observations.
+4. observation_task_ids may contain ONLY allowed_observation_task_ids.
+   RAG and Web task IDs are NEVER citation IDs, including failed Web tasks.
+   Describe a failed Web query as an uncited limitation, using empty lists.
 
 5. Never invent an evidence_id.
 
@@ -502,7 +504,6 @@ Rules:
     COMPARISON
     ITINERARY
     WEATHER
-    BUDGET
 
 12. Points should be compact structured content units, but must preserve
     enough grounded detail for the Synthesizer to produce a useful
@@ -515,9 +516,9 @@ Rules:
 14. Failed tool observations may be referenced only to explain a
     limitation, not as factual evidence.
 
-15. Every required subtask in the execution plan must be addressed in
-    the answer plan unless its tool failed or the required information
-    is unavailable.
+15. Every required subtask must be addressed in the answer plan.
+    A failed or unavailable task requires an explicit limitation section.
+    Do not skip it. Unverified statements use empty citation lists.
 
 16. Do not substitute generic destination background information for a
     requested subtask.
@@ -588,13 +589,34 @@ For recommendation, comparison, itinerary, and travel-planning queries:
 
 INTENT-AWARE ANSWER CONTRACT:
 
+COMPOUND COVERAGE CONTRACT:
+- The primary intent is not the complete request. Cover EVERY independent
+  user requirement represented by subtasks, including each web query.
+- An itinerary plus weather plus events plus routing requires all four
+  outcomes. Preserve separate weather/events/routing sections as well as days.
+- For events, name only events whose location and actual occurrence dates
+  match the requested period. Old festival articles or attraction guides
+  do not establish a current event. Publication date is not occurrence date.
+- A month or ISO week number is NOT enough to confirm an event on the
+  requested days. If a source lists only "week 41" or "week 42", do not
+  claim the event happens on Saturday-Sunday. Say the exact dates remain
+  unverified; any broader schedule must be clearly labeled as a lead only.
+- If current events cannot be verified, create an explicit events section
+  saying they could not be verified for the requested place/dates. Never
+  conclude that no events exist from missing or irrelevant search results.
+- Failed routing must have its own limitation. Generic article estimates
+  are not a Goong calculation and must not be presented as the tool result.
+- Use the dates in Weather tool results. If the requested range is outside
+  the forecast horizon, state that limitation; do not substitute nearer days.
+- Trip duration and weekend dates are separate. Preserve a three-day
+  reference itinerary without inventing dates outside the requested weekend.
+
 - GENERAL: concise conversational response; do not inherit travel context.
 - FACTUAL_TRAVEL: answer the fact directly, then add only supported context.
 - WEATHER: concise conditions, important rounded values, and a practical but
   cautious travel implication.
 - ROUTING: route, distance, duration, and a supported practical note.
 - CURRENT_INFO: answer the current question directly with fresh citations.
-- BUDGET: structured arithmetic, assumptions, known values, and unknowns.
 - RECOMMENDATION: several supported options when available and why each fits.
 - COMPARISON: preserve the requested subjects and compare meaningful criteria.
 - ITINERARY: preserve the complete requested day count.
@@ -617,7 +639,7 @@ GROUNDING GRANULARITY RULES:
   RAG or Web task_id.
 
 - observation_task_ids are reserved for specialized structured tools:
-  weather, budget, routing, and map.
+  weather, routing, and map.
 
 CITATION MINIMIZATION:
 
@@ -659,13 +681,6 @@ ITINERARY OUTPUT CONTRACT:
 - Reflect current user preferences from constraints.
 - Present this as a reference itinerary, not an optimized route.
 - Do not invent exact durations or travel times.
-
-BUDGET GROUNDING CONTRACT:
-
-- The budget calculator performs arithmetic only; it is not a price estimator.
-- If no successful calculator observation or price evidence exists, do not
-  invent hotel, food, transport, or total costs.
-- Separate known costs, explicit assumptions, and unknown costs.
 
 ANSWER DEPTH POLICY:
 
@@ -897,50 +912,51 @@ INPUT CONTEXT:
             update={"sections": sections, "limitations": limitations}
         )
 
-    @staticmethod
-    def _enforce_budget_grounding(
-        output: ReasonerOutput,
-        plan: ExecutionPlan,
-        observations: list[ToolObservation],
-        research_evidence: list[EvidenceItem],
-    ) -> ReasonerOutput:
-        if plan.intent != Intent.BUDGET:
-            return output
-        calculator_succeeded = any(
-            item.tool == ToolName.BUDGET and item.status == TaskStatus.SUCCESS
-            for item in observations
-        )
-        if calculator_succeeded or research_evidence:
-            return output
-
-        limitation = (
-            "Chưa có chi phí do người dùng cung cấp hoặc bằng chứng giá để "
-            "ước tính tổng ngân sách một cách đáng tin cậy."
-        )
-        return output.model_copy(
-            update={
-                "sections": [
-                    ReasonerSection(
-                        heading="Thông tin cần bổ sung",
-                        purpose="Không suy đoán giá khi thiếu dữ liệu đầu vào",
-                        points=[
-                            ReasonerPoint(
-                                text=(
-                                    "Cần chi phí hoặc giả định rõ ràng cho lưu trú, "
-                                    "ăn uống và di chuyển trước khi tính tổng."
-                                )
-                            )
-                        ],
-                    )
-                ],
-                "limitations": list(dict.fromkeys([*output.limitations, limitation])),
-                "degraded": True,
-            }
-        )
-
     # ========================================================
     # PUBLIC
     # ========================================================
+
+    @staticmethod
+    def _enforce_compound_coverage(
+        output: ReasonerOutput,
+        plan: ExecutionPlan,
+        observations: list[ToolObservation],
+    ) -> ReasonerOutput:
+        if not plan.is_compound:
+            return output
+        evidence_ids = {value for section in output.sections for point in section.points
+                        for value in point.evidence_ids}
+        observation_ids = {value for section in output.sections for point in section.points
+                           for value in point.observation_task_ids}
+        observation_map = {item.task_id: item for item in observations}
+        output = output.model_copy(deep=True)
+        for task in plan.subtasks:
+            if not task.required or task.tool == ToolName.RAG:
+                continue
+            observation = observation_map.get(task.task_id)
+            if task.tool != ToolName.WEB_SEARCH and task.task_id in observation_ids:
+                continue
+            if observation is not None and observation.status == TaskStatus.SUCCESS:
+                if task.tool == ToolName.WEB_SEARCH:
+                    if evidence_ids & {item.evidence_id for item in observation.evidence}:
+                        continue
+                elif task.task_id in observation_ids:
+                    continue
+            text = f"Chưa có kết quả được kiểm chứng để trả lời riêng yêu cầu: {task.description}."
+            if task.tool == ToolName.WEB_SEARCH:
+                text += " Điều này không có nghĩa là không có sự kiện hoặc thông tin liên quan."
+            elif task.tool == ToolName.ROUTING:
+                text += " Chưa xác nhận được thời gian di chuyển bằng công cụ tính tuyến."
+            elif task.tool == ToolName.WEATHER:
+                text += " Chưa xác nhận được dự báo cho đúng địa điểm và khoảng ngày yêu cầu."
+            output.sections.append(ReasonerSection(
+                heading=task.description,
+                purpose="Nêu rõ phần yêu cầu chưa được xác minh",
+                points=[ReasonerPoint(text=text)],
+            ))
+            output.limitations.append(text)
+            output.degraded = True
+        return output
 
     def reason(
         self,
@@ -1031,12 +1047,7 @@ INPUT CONTEXT:
         )
 
         output = self._enforce_itinerary_structure(output, plan)
-        output = self._enforce_budget_grounding(
-            output,
-            plan,
-            observations,
-            research_evidence,
-        )
+        output = self._enforce_compound_coverage(output, plan, observations)
 
         # ====================================================
         # FORCE DEGRADED WHEN VALIDATION FAILED
@@ -1065,10 +1076,34 @@ INPUT CONTEXT:
         # ANTI-HALLUCINATION CHECK
         # ====================================================
 
-        self._validate_references(
-            output=output,
-            evidence=research_evidence,
-            observations=observations,
-        )
+        try:
+            self._validate_references(
+                output=output,
+                evidence=research_evidence,
+                observations=observations,
+            )
+        except ValueError as exc:
+            # One bounded repair retains the same evidence and citation contract.
+            repaired = self.llm_runtime.generate_content(
+                model=self.model,
+                contents=prompt + "\nCorrect the invalid output below. Validation error: "
+                + str(exc) + "\nFor unsupported/failed web requests, write an uncited "
+                "limitation section. Use ONLY allowed IDs.\n"
+                + output.model_dump_json(),
+                config=types.GenerateContentConfig(
+                    temperature=0.0, max_output_tokens=3072,
+                    response_mime_type="application/json",
+                    response_json_schema=response_schema,
+                ),
+            )
+            output = ReasonerOutput.model_validate_json(repaired.text or "")
+            output = output.model_copy(update={
+                "answer_type": plan.intent.value, "answer_goal": plan.goal,
+                "degraded": output.degraded or not validation.valid,
+            })
+            output = self._enforce_itinerary_structure(output, plan)
+            output = self._enforce_compound_coverage(output, plan, observations)
+            output = self._normalize_reference_lists(output)
+            self._validate_references(output=output, evidence=research_evidence, observations=observations)
 
         return output

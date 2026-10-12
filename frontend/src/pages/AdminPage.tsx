@@ -212,7 +212,7 @@ function runStatusLabel(status: string, t: Translate) {
 }
 
 function toolLabel(tool: string, t: Translate) {
-  return ({ weather: t("Thời tiết", "Weather"), search_travel_knowledge: t("Kho tri thức", "Knowledge search"), web_search: t("Tìm kiếm web", "Web search"), routing: t("Đường đi", "Routing"), map_location: t("Địa điểm", "Location"), budget_calculator: t("Chi phí", "Budget"), distance_matrix: t("Khoảng cách", "Distance") } as Record<string, string>)[tool] || tool;
+  return ({ weather: t("Thời tiết", "Weather"), search_travel_knowledge: t("Kho tri thức", "Knowledge search"), web_search: t("Tìm kiếm web", "Web search"), routing: t("Đường đi", "Routing"), map_location: t("Địa điểm", "Location"), distance_matrix: t("Khoảng cách", "Distance") } as Record<string, string>)[tool] || tool;
 }
 
 function formatDate(value: string, language: string, time = false) {

@@ -422,7 +422,7 @@ class TravelAgentWorkflow:
             ↓
         RAG + WEB research evidence
 
-        Weather / Routing / Budget không đi vào đây.
+        Weather / Routing không đi vào đây.
         Chúng vẫn còn nguyên trong state.observations.
         """
 

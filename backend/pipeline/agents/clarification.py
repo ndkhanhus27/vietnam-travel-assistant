@@ -93,12 +93,6 @@ FIELD_ALIASES: dict[
         "start_date",
     },
 
-    "budget": {
-        "budget",
-        "total_budget",
-        "trip_budget",
-    },
-
     "travelers": {
         "travelers",
         "traveler_count",
@@ -240,32 +234,6 @@ FIELD_CATALOG: dict[
         ),
     ),
 
-    "budget": RequirementSpec(
-        field_key="budget",
-
-        level=(
-            RequirementLevel
-            .IMPORTANT
-        ),
-
-        priority=55,
-
-        answer_type=(
-            ClarificationAnswerType
-            .NUMBER
-        ),
-
-        question=(
-            "Ngân sách dự kiến cho chuyến đi "
-            "của bạn khoảng bao nhiêu?"
-        ),
-
-        reason=(
-            "Ngân sách giúp điều chỉnh "
-            "các gợi ý phù hợp hơn."
-        ),
-    ),
-
     "travelers": RequirementSpec(
         field_key="travelers",
 
@@ -287,7 +255,7 @@ FIELD_CATALOG: dict[
 
         reason=(
             "Số người có thể ảnh hưởng "
-            "ngân sách và lịch trình."
+            "đến cách sắp xếp lịch trình."
         ),
     ),
 
@@ -347,7 +315,6 @@ INTENT_REQUIREMENTS: dict[
         "trip_duration",
         "travel_date",
         "travelers",
-        "budget",
     ),
 
     Intent.WEATHER: (
