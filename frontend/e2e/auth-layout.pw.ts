@@ -4,6 +4,8 @@ const screens = [
   { name: "laptop", width: 1440, height: 900 },
   { name: "small-laptop", width: 1024, height: 600 },
   { name: "phone", width: 390, height: 844 },
+  { name: "iphone-webview", width: 414, height: 728 },
+  { name: "tablet", width: 820, height: 1180 },
   { name: "small-phone", width: 320, height: 568 },
   { name: "landscape-phone", width: 844, height: 390 },
   { name: "zoom-200-effective", width: 720, height: 450 },
@@ -44,6 +46,15 @@ for (const screen of screens) {
       expect(dimensions.width).toBe(dimensions.viewport);
       expect(dimensions.overflow).toEqual([]);
       expect(dimensions.overflowY).toBe("auto");
+      if (screen.width <= 900) {
+        const panel = await page.locator(".auth-panel").boundingBox();
+        expect(panel!.width).toBeGreaterThanOrEqual(Math.min(420, screen.width - 48));
+        expect(Math.abs(panel!.x + panel!.width / 2 - screen.width / 2)).toBeLessThan(2);
+        if (route === "/login" || route === "/register") {
+          expect(await page.locator('input[name="email"]').evaluate(el => parseFloat(getComputedStyle(el).fontSize))).toBeGreaterThanOrEqual(16);
+          if (screen.width >= 240) await expect(page.getByRole("button", { name: "Tiếp tục với Google" })).not.toHaveText("G");
+        }
+      }
       await page.locator(".auth-submit").scrollIntoViewIfNeeded();
       await expect(page.locator(".auth-submit")).toBeInViewport();
       if (route === "/login" && ["laptop", "phone", "zoom-400-effective"].includes(screen.name)) {

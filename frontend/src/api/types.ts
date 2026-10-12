@@ -140,6 +140,7 @@ export type MessageResponse = {
   intent: string | null;
   citations: CitationResponse[] | null;
   warnings: string[] | null;
+  feedback?: -1 | 1 | null;
   created_at: string;
 };
 

@@ -12,6 +12,7 @@ import { AccountSecurity } from "../components/AccountSecurity";
 import { Button, Segmented } from "antd";
 import { useLocale } from "../locale/LocaleProvider";
 import { localizeNotification } from "../locale/notifications";
+import { ThumbsDownIcon, ThumbsUpIcon } from "lucide-react";
 import {
   ArchiveIcon, ChatIcon, CheckIcon, EditIcon, ExternalIcon, LogoutIcon, MenuIcon,
   MoreIcon, PlusIcon, SendIcon, SettingsIcon, TrashIcon, UsersIcon, WarningIcon,
@@ -24,7 +25,7 @@ function progressLabel(stage: AgentProgressStage, t: Translate) {
 }
 
 function toolLabel(tool: string, t: Translate) {
-  return ({ weather: t("Đang kiểm tra thời tiết", "Checking the weather"), search_travel_knowledge: t("Đang tra cứu thông tin du lịch", "Searching travel knowledge"), web_search: t("Đang tìm thông tin mới nhất", "Finding current information"), routing: t("Đang tính đường đi", "Calculating the route"), map_location: t("Đang xác định địa điểm", "Locating the destination"), budget_calculator: t("Đang ước tính chi phí", "Estimating the budget"), distance_matrix: t("Đang so sánh khoảng cách", "Comparing distances") } as Record<string, string>)[tool] || t("Đang thu thập thông tin du lịch", "Gathering travel information");
+  return ({ weather: t("Đang kiểm tra thời tiết", "Checking the weather"), search_travel_knowledge: t("Đang tra cứu thông tin du lịch", "Searching travel knowledge"), web_search: t("Đang tìm thông tin mới nhất", "Finding current information"), routing: t("Đang tính đường đi", "Calculating the route"), map_location: t("Đang xác định địa điểm", "Locating the destination"), distance_matrix: t("Đang so sánh khoảng cách", "Comparing distances") } as Record<string, string>)[tool] || t("Đang thu thập thông tin du lịch", "Gathering travel information");
 }
 
 function titleOf(conversation: ConversationResponse, fallback = "Cuộc trò chuyện mới") {
@@ -297,7 +298,10 @@ export function TravelChatPage() {
           <section className="conversation-view" ref={viewRef} aria-label={activeConversation ? titleOf(activeConversation, t("Cuộc trò chuyện mới", "New conversation")) : t("Cuộc trò chuyện", "Conversation")} onScroll={(event) => { const element = event.currentTarget; stayAtBottom.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120; }}>
             <div className="message-list">
               {historyLoading && !messages.length && <div className="history-skeleton"><span /><span /><span /></div>}
-              {messages.map((message) => <MessageView key={message.id} message={message} degraded={degradedIds.has(message.id)} />)}
+              {messages.map((message) => <MessageView key={message.id} message={message} degraded={degradedIds.has(message.id)} onFeedback={message.role === "assistant" && conversationId ? async (feedback) => {
+                const updated = await api.setMessageFeedback(conversationId, message.id, feedback);
+                setMessages(current => current.map(item => item.id === updated.id ? updated : item));
+              } : undefined} />)}
               {progress && <AgentProgress label={progress} />}
               {pageError && <div className="inline-error" role="alert">{localizeNotification(pageError)}</div>}
               {rateLimitSeconds !== null && <div className="inline-error" role="alert">{t(`Bạn thao tác quá nhanh. Vui lòng thử lại sau ${rateLimitSeconds} giây.`, `Too many requests. Try again in ${rateLimitSeconds} seconds.`)}</div>}
@@ -358,18 +362,22 @@ function ConversationPopover({ anchorRef, onClose, children }: { anchorRef: RefO
 function EmptyState({ onSuggestion }: { onSuggestion: (text: string) => void }) {
   const { t } = useLocale();
   const suggestions = [
-    [t("Gợi ý điểm đến", "Destination ideas"), t("Cuối tháng 11 nên đi đâu ở miền Bắc?", "Where should I go in northern Vietnam in late November?")],
-    [t("So sánh", "Compare"), t("Đà Nẵng và Nha Trang nơi nào hợp gia đình hơn?", "Which is better for families: Da Nang or Nha Trang?")],
-    [t("Lịch trình", "Itinerary"), t("Lên lịch trình Đà Lạt 3 ngày nhẹ nhàng.", "Plan a relaxed three-day trip to Da Lat.")],
-    [t("Ngân sách", "Budget"), t("5 triệu cho 2 người đi Huế 3 ngày có đủ không?", "Is 5 million VND enough for two people in Hue for three days?")],
+    [t("Kiến thức du lịch", "Travel knowledge"), t("Ga Đà Lạt có gì đặc biệt?", "What is special about Da Lat Railway Station?")],
+    [t("Gợi ý trải nghiệm", "Recommendations"), t("Ở Huế buổi tối nên đi đâu?", "Where should I go in Hue at night?")],
+    [t("So sánh", "Compare"), t("Huế hay Hội An hợp đi 2 ngày hơn?", "Which is better for a two-day trip: Hue or Hoi An?")],
+    [t("Lịch trình", "Itinerary"), t("Lên lịch trình Huế 3 ngày.", "Plan a three-day trip to Hue.")],
+    [t("Thời tiết", "Weather"), t("Huế cuối tuần có mưa không?", "Will it rain in Hue this weekend?")],
+    [t("Đường đi", "Routing"), t("Từ Đại Nội đến lăng Khải Định bao xa?", "How far is it from the Imperial City to Khai Dinh Tomb?")],
+    [t("Thông tin mới", "Current info"), t("Huế hiện có sự kiện gì?", "What events are happening in Hue right now?")],
+    [t("Trò chuyện", "General"), t("Tôi muốn đi du lịch nhưng chưa biết đi đâu.", "I want to travel but do not know where to go yet.")],
   ];
-  return <section className="empty-state"><div className="empty-copy"><div className="empty-kicker">V</div><h1>{t("Bạn muốn khám phá đâu hôm nay?", "Where would you like to explore today?")}</h1><p>{t("Hỏi về điểm đến, so sánh lựa chọn, thời tiết, chi phí hoặc nhờ mình gợi ý một lịch trình.", "Ask about destinations, compare options, check weather and costs, or build an itinerary.")}</p></div><div className="suggestions" aria-label={t("Câu hỏi gợi ý", "Suggested questions")}>{suggestions.map(([label, question]) => <button key={question} onClick={() => onSuggestion(question)}><strong>{label}</strong><span>{question}</span></button>)}</div></section>;
+  return <section className="empty-state"><div className="empty-copy"><div className="empty-kicker">V</div><h1>{t("Bạn muốn khám phá đâu hôm nay?", "Where would you like to explore today?")}</h1><p>{t("Hỏi kiến thức du lịch, gợi ý điểm đến, so sánh lựa chọn, xem thời tiết, tính đường hoặc nhờ mình lên lịch trình.", "Ask about travel knowledge, recommendations, comparisons, weather, routing, or itinerary planning.")}</p></div><div className="suggestions" aria-label={t("Câu hỏi gợi ý", "Suggested questions")}>{suggestions.map(([label, question]) => <button key={question} onClick={() => onSuggestion(question)}><strong>{label}</strong><span>{question}</span></button>)}</div></section>;
 }
 
-export function MessageView({ message, degraded }: { message: MessageResponse; degraded: boolean }) {
+export function MessageView({ message, degraded, onFeedback }: { message: MessageResponse; degraded: boolean; onFeedback?: (feedback: -1 | 1 | null) => Promise<void> }) {
   const { t } = useLocale();
   if (message.role === "user") return <article className="user-message"><div className="message-meta">{t("Bạn", "You")}</div><p>{message.content}</p></article>;
-  return <article className="assistant-message"><div className="assistant-mark">AI</div><div className="assistant-bubble"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{t("Một số thông tin chưa thể được kiểm chứng đầy đủ.", "Some information could not be fully verified.")}</div></div> : null}</div></article>;
+  return <article className="assistant-message"><div className="assistant-mark">AI</div><div className="assistant-bubble"><div className="message-meta assistant-label">Vietnam Travel Advisor</div><MarkdownLite content={message.content} />{message.citations?.length ? <CitationList citations={message.citations} /> : null}{(degraded || message.warnings?.length) ? <div className="warning-row"><WarningIcon /><div>{t("Một số thông tin chưa thể được kiểm chứng đầy đủ.", "Some information could not be fully verified.")}</div></div> : null}{onFeedback && <div className="message-feedback" aria-label={t("Đánh giá câu trả lời", "Rate answer")}><button type="button" className={message.feedback === 1 ? "is-active" : ""} aria-label={t("Câu trả lời hữu ích", "Helpful answer")} aria-pressed={message.feedback === 1} onClick={() => void onFeedback(message.feedback === 1 ? null : 1)}><ThumbsUpIcon /></button><button type="button" className={message.feedback === -1 ? "is-active" : ""} aria-label={t("Câu trả lời chưa hữu ích", "Unhelpful answer")} aria-pressed={message.feedback === -1} onClick={() => void onFeedback(message.feedback === -1 ? null : -1)}><ThumbsDownIcon /></button></div>}</div></article>;
 }
 
 function CitationList({ citations }: { citations: CitationResponse[] }) {

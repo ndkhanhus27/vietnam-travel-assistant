@@ -17,7 +17,7 @@ async function mockAuthenticatedApi(page: Page) {
       user: currentUser,
     }));
   }, user);
-  await page.route("http://localhost:8000/api/v1/**", async (route) => {
+  await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     if (path.endsWith("/admin/conversations") || path.endsWith("/admin/agent-runs")) return route.fulfill({ json: { items: [], total: 0, limit: 20, offset: 0 } });
@@ -44,6 +44,9 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
     const composer = await page.locator(".composer").boundingBox();
     expect(composer!.y + composer!.height).toBeLessThanOrEqual(viewport.height);
     expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(viewport.height);
+    const empty = await page.locator(".empty-state").boundingBox();
+    const main = await page.locator(".chat-main").boundingBox();
+    expect(Math.abs(empty!.x + empty!.width - main!.x - main!.width)).toBeLessThan(2);
     await page.screenshot({ path: info.outputPath("client.png"), fullPage: true });
   });
 

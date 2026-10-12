@@ -209,6 +209,11 @@ export const api = {
   updateConversation: (id: string, payload: { title?: string | null; is_archived?: boolean }) => request<ConversationResponse>(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   deleteConversation: (id: string) => request<void>(`/conversations/${id}`, { method: "DELETE" }),
   getMessages: (id: string) => request<MessageResponse[]>(`/conversations/${id}/messages`),
+  setMessageFeedback: (conversationId: string, messageId: string, feedback: -1 | 1 | null) =>
+    request<MessageResponse>(`/conversations/${conversationId}/messages/${messageId}/feedback`, {
+      method: "PATCH",
+      body: JSON.stringify({ feedback }),
+    }),
   sendMessage: (id: string, content: string) => request<ChatResponse>(`/conversations/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
   streamMessage: streamConversation,
   logout: async () => {

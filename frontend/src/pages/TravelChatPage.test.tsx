@@ -6,6 +6,7 @@ import {
   createOptimisticMessageId,
   MessageView,
 } from "./TravelChatPage";
+import { MarkdownLite } from "../components/MarkdownLite";
 
 const message: MessageResponse = {
   id: "assistant-1",
@@ -33,6 +34,28 @@ describe("MessageView", () => {
     const html = renderToStaticMarkup(<MessageView message={message} degraded />);
     expect(html).toContain("Travel answer");
     expect(html).toContain("Một số thông tin chưa thể được kiểm chứng đầy đủ.");
+  });
+});
+
+describe("MarkdownLite", () => {
+  it("renders headings, links, images and code without injecting HTML", () => {
+    const markdown = "## Huế\n[Xem nguồn](https://example.com/source)\n![Đại Nội](https://example.com/hue.jpg)\n`inline`\n```js\nalert('safe text')\n```";
+    const html = renderToStaticMarkup(<MarkdownLite content={markdown} />);
+
+    expect(html).toContain("<h2>Huế</h2>");
+    expect(html).toContain('href="https://example.com/source"');
+    expect(html).toContain('src="https://example.com/hue.jpg"');
+    expect(html).toContain("<code>inline</code>");
+    expect(html).toContain('class="language-js"');
+  });
+
+  it("blocks unsafe link and image protocols", () => {
+    const html = renderToStaticMarkup(<MarkdownLite content="[bad](javascript:alert(1))\n![bad](data:text/html,bad)" />);
+
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("data:text");
+    expect(html).not.toContain("href=");
+    expect(html).not.toContain("src=");
   });
 });
 
