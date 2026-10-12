@@ -21,6 +21,28 @@ Configure the `staging` GitHub environment with `GEMINI_API_KEY`,
 Bộ dữ liệu có 110 câu, 10 nhóm; 65 câu yêu cầu RAG và có nhãn chunk.
 [Kết quả đã chạy](reports/report_vi.md).
 
+## Cấu hình Hybrid + Reranker ưu tiên
+
+`backend/.env` và `.env.example` dùng cấu hình của lượt 11/10/2026:
+`BAAI/bge-reranker-v2-m3`, revision `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`,
+CPU INT8, 10 ứng viên, hybrid limit 12 và rerank limit 6. Lượt cũ đạt
+Recall@5 79,23% trên 65 câu RAG. Ba câu đã đổi sau khi bỏ budget, nên điểm
+của dataset hiện tại phải được đo lại.
+
+Chạy retrieval riêng trước; bước này không gọi Gemini hay các API travel:
+
+```powershell
+cd D:\abc\backend
+$env:PYTHONIOENCODING = "utf-8"
+$tag = Get-Date -Format "yyyyMMdd_HHmmss"
+..\.venv\Scripts\python.exe -m evaluation.validate_dataset --qdrant-url http://localhost:6333
+..\.venv\Scripts\python.exe -m evaluation.retrieval_benchmark --output "evaluation/reports/retrieval_bge_$tag.json"
+```
+
+Giữ cấu hình và corpus cố định khi chạy full workflow tiếp theo. Chạy bằng
+tiến trình Python mới để đọc `.env`; nếu model revision chưa có trong cache,
+lần đầu sẽ tải trọng số từ Hugging Face.
+
 ## Chạy lại toàn bộ từ đầu trên Windows
 
 Từ PowerShell, dùng tên output mới để tách lần chạy với cơ chế nguồn tham khảo
