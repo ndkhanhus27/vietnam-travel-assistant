@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import logging
+from threading import Lock
 from typing import TYPE_CHECKING
 from app.infra.redis import ThreadJsonCache
+from pipeline.rag.model_cache import is_memory_error
 
 from pipeline.agents.schemas import (
     ResearchDepth,
@@ -93,6 +95,7 @@ class ToolRegistry:
         self._distance_matrix_tool = distance_matrix_tool
         self._geocode_cache = geocode_cache
         self._goong_client: GoongClient | None = None
+        self._knowledge_lock = Lock()
 
     # ========================================================
     # LAZY DEPENDENCIES
@@ -121,17 +124,10 @@ class ToolRegistry:
         self,
     ) -> TravelKnowledgeTool:
 
-        if self._knowledge is None:
-
-            from .knowledge import (
-                TravelKnowledgeTool,
-            )
-
-            self._knowledge = (
-                TravelKnowledgeTool(
-                    web_tool=self._web
-                )
-            )
+        with self._knowledge_lock:
+            if self._knowledge is None:
+                from .knowledge import TravelKnowledgeTool
+                self._knowledge = TravelKnowledgeTool(web_tool=self._web)
 
         return self._knowledge
 
@@ -200,6 +196,7 @@ class ToolRegistry:
         *,
         task: SubTask,
         message: str,
+        error_code: str | None = None,
     ) -> ToolObservation:
 
         return ToolObservation(
@@ -212,6 +209,7 @@ class ToolRegistry:
             error=message,
 
             source_count=0,
+            data={"error_code": error_code} if error_code else {},
         )
 
     # ========================================================
@@ -553,6 +551,7 @@ class ToolRegistry:
 
             return self._failed(
                 task=task,
+                error_code="RAG_MEMORY_ALLOCATION_FAILED" if is_memory_error(exc) else None,
                 message=(
                     f"{type(exc).__name__}: "
                     f"{exc}"

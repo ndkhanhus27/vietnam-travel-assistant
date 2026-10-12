@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import unittest
+from threading import Lock
 import torch
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from app.core.config import settings
 from pipeline.rag.reranker import TravelReranker
+from pipeline.rag import model_cache
 from pipeline.agents.tools.knowledge import TravelKnowledgeTool
 
 
@@ -19,8 +21,11 @@ def candidate(point_id):
 
 class RerankerTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(model_cache._resources, {}, clear=True))
+        self.enterContext(patch.dict(model_cache._memory_failures, {}, clear=True))
         self.reranker = TravelReranker.__new__(TravelReranker)
         self.reranker.model = Mock()
+        self.reranker._inference_lock = Lock()
         self.points = [candidate(str(index)) for index in range(4)]
 
     def test_cross_encoder_legacy_mode(self):

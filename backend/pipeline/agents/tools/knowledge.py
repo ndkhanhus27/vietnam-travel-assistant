@@ -1,4 +1,5 @@
 from __future__ import annotations
+from threading import Lock
 
 from pipeline.agents.schemas import (
     CoverageResult,
@@ -102,6 +103,7 @@ class TravelKnowledgeTool:
         self._retriever: (
             TravelReranker | None
         ) = None
+        self._retriever_lock = Lock()
 
         self._web: (
             WebSearchTool | None
@@ -116,11 +118,9 @@ class TravelKnowledgeTool:
         self,
     ) -> TravelReranker:
 
-        if self._retriever is None:
-
-            self._retriever = (
-                TravelReranker()
-            )
+        with self._retriever_lock:
+            if self._retriever is None:
+                self._retriever = TravelReranker()
 
         return self._retriever
 

@@ -8,6 +8,7 @@ from sentence_transformers import CrossEncoder
 
 from app.core.config import settings
 from pipeline.rag.hybrid_retriever import HybridRetriever, HybridRetrievedChunk
+from pipeline.rag.model_cache import get_model
 
 
 @dataclass(frozen=True)
@@ -73,19 +74,28 @@ class TravelReranker:
         else:
             self.device = "cpu"
 
-        print(f"[reranker] model={settings.rag_reranker_model}")
-        print(f"[reranker] device={self.device}")
-
-        self.model = CrossEncoder(
-            settings.rag_reranker_model,
-            device=self.device,
-            max_length=settings.rag_reranker_max_length,
-            **({"revision": settings.rag_reranker_revision} if settings.rag_reranker_revision else {}),
-        )
-        if self.device == "cpu" and settings.rag_reranker_cpu_int8:
-            torch.ao.quantization.quantize_dynamic(
-                self.model.model, {torch.nn.Linear}, dtype=torch.qint8, inplace=True,
+        def load_model():
+            print(f"[reranker] model={settings.rag_reranker_model}")
+            print(f"[reranker] device={self.device}")
+            model = CrossEncoder(
+                settings.rag_reranker_model,
+                device=self.device,
+                max_length=settings.rag_reranker_max_length,
+                **({"revision": settings.rag_reranker_revision} if settings.rag_reranker_revision else {}),
             )
+            if self.device == "cpu" and settings.rag_reranker_cpu_int8:
+                torch.ao.quantization.quantize_dynamic(
+                    model.model, {torch.nn.Linear}, dtype=torch.qint8, inplace=True,
+                )
+            return model
+
+        resource = get_model((
+            "reranker", settings.rag_reranker_model, self.device,
+            settings.rag_reranker_revision, settings.rag_reranker_max_length,
+            settings.rag_reranker_cpu_int8,
+        ), load_model)
+        self.model = resource.model
+        self._inference_lock = resource.inference_lock
 
     @staticmethod
     def _build_passage(item: HybridRetrievedChunk) -> str:
@@ -126,12 +136,13 @@ class TravelReranker:
             ranked = [(index, float(item.hybrid_score)) for index, item in enumerate(candidates)]
         else:
             pairs = [(query, self._build_passage(item)) for item in candidates]
-            scores = self.model.predict(
-                pairs,
-                batch_size=settings.rag_reranker_batch_size,
-                show_progress_bar=False,
-                convert_to_numpy=True,
-            )
+            with self._inference_lock:
+                scores = self.model.predict(
+                    pairs,
+                    batch_size=settings.rag_reranker_batch_size,
+                    show_progress_bar=False,
+                    convert_to_numpy=True,
+                )
             scores = np.asarray(scores, dtype=np.float32).reshape(-1)
             if len(scores) != len(candidates):
                 raise RuntimeError("Số reranker scores không khớp số candidates.")

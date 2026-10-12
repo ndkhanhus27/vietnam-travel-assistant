@@ -7,6 +7,7 @@ import torch
 from sentence_transformers import SentenceTransformer
 
 from app.core.config import settings
+from pipeline.rag.model_cache import get_model
 
 
 class BgeM3Embedder:
@@ -27,13 +28,14 @@ class BgeM3Embedder:
         else:
             self.device = "cpu"
 
-        print(f"[embedding] model={settings.rag_embedding_model}")
-        print(f"[embedding] device={self.device}")
+        def load_model():
+            print(f"[embedding] model={settings.rag_embedding_model}")
+            print(f"[embedding] device={self.device}")
+            return SentenceTransformer(settings.rag_embedding_model, device=self.device)
 
-        self.model = SentenceTransformer(
-            settings.rag_embedding_model,
-            device=self.device,
-        )
+        resource = get_model(("embedding", settings.rag_embedding_model, self.device), load_model)
+        self.model = resource.model
+        self._inference_lock = resource.inference_lock
 
     def encode(
         self,
@@ -51,13 +53,14 @@ class BgeM3Embedder:
         if batch_size is None:
             batch_size = settings.rag_embedding_batch_size
 
-        embeddings = self.model.encode(
-            list(texts),
-            batch_size=batch_size,
-            show_progress_bar=show_progress_bar,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        )
+        with self._inference_lock:
+            embeddings = self.model.encode(
+                list(texts),
+                batch_size=batch_size,
+                show_progress_bar=show_progress_bar,
+                convert_to_numpy=True,
+                normalize_embeddings=True,
+            )
 
         embeddings = np.asarray(
             embeddings,

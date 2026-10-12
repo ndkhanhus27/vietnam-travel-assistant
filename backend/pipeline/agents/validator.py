@@ -55,6 +55,7 @@ class AgentValidator:
     # ========================================================
 
     NON_RECOVERABLE_TOOL_ERRORS = {
+        "RAG_MEMORY_ALLOCATION_FAILED",
         # Weather provider/product capability.
         "WEATHER_FORECAST_OUT_OF_RANGE",
         "WEATHER_HISTORY_UNSUPPORTED",
