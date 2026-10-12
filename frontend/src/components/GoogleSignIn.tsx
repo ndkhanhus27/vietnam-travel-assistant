@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocale } from "../locale/LocaleProvider";
 import { localizeNotification } from "../locale/notifications";
+import { useAppearance } from "../appearance/AppearanceProvider";
 
 declare global {
   interface Window {
@@ -31,6 +32,7 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
 }) {
   const container = useRef<HTMLDivElement>(null);
   const { language, t } = useLocale();
+  const { resolvedMode } = useAppearance();
   const [ready, setReady] = useState(false);
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
   const originSupported = isGoogleSignInOriginSupported(
@@ -65,7 +67,7 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
         },
       });
       window.google.accounts.id.renderButton(container.current, {
-        type: width < 200 ? "icon" : "standard", theme: "outline", size: "large",
+        type: width < 200 ? "icon" : "standard", theme: resolvedMode === "dark" ? "filled_black" : "outline", size: "large",
         ...(width >= 200 ? { width: String(width) } : {}), locale: language,
       });
       setReady(true);
@@ -88,7 +90,7 @@ export function GoogleSignIn({ disabled, onCredential, onUnavailable }: {
     script.addEventListener("error", failed, { once: true });
     document.head.appendChild(script);
     return () => { observer?.disconnect(); script.removeEventListener("load", render); script.removeEventListener("error", failed); };
-  }, [clientId, onCredential, onUnavailable, originSupported, language]);
+  }, [clientId, onCredential, onUnavailable, originSupported, language, resolvedMode]);
 
   if (!clientId || !originSupported) {
     const title = clientId

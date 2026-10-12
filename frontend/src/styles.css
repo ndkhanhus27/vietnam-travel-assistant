@@ -873,6 +873,15 @@ body:has(.auth-page) { min-width: 0; overflow: auto; }
 }
 
 /* Keep the conversation inside the viewport; only its content scrolls. */
+@media (max-width: 900px) {
+  .auth-page { display: flex; flex-direction: column; align-items: center; min-height: 100dvh; padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
+  .auth-page > .auth-story { display: none; }
+  .auth-page > .auth-panel { width: 100%; max-width: 420px; margin: auto 0; padding: 72px 0 32px; }
+  .auth-panel .auth-form, .auth-panel .google-login-slot { width: 100%; min-width: 0; }
+  .auth-panel .google-login-slot { min-height: 44px; }
+  .auth-panel .auth-submit { width: 100%; }
+}
+
 body { min-width: 0; }
 .app-shell { grid-template-rows: minmax(0, 1fr); }
 .sidebar { min-height: 0; overflow: hidden; }

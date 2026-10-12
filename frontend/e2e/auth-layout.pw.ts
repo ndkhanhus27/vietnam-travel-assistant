@@ -20,6 +20,7 @@ test.beforeEach(async ({ page }) => {
     body: `window.google={accounts:{id:{initialize(){},disableAutoSelect(){},renderButton(el,o){
       const b=document.createElement('button'); b.type='button'; b.textContent=o.type==='icon'?'G':'Tiếp tục với Google';
       b.style.width=o.width?o.width+'px':'44px'; b.style.height='44px';
+      b.dataset.theme=o.theme;
       b.setAttribute('aria-label','Tiếp tục với Google'); el.appendChild(b);
     }}}};`,
   }));
@@ -74,4 +75,18 @@ test("Google button resizes when the viewport changes without reloading", async 
   await page.setViewportSize({ width: 190, height: 400 });
   await expect(google).toHaveText("G");
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(190);
+});
+
+test("dark mobile login keeps a centered full-width form and Google button", async ({ page }, info) => {
+  await page.addInitScript(() => localStorage.setItem("vta_theme_mode", "dark"));
+  await page.setViewportSize({ width: 414, height: 728 });
+  await page.goto("/login");
+  await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const panel = await page.locator(".auth-panel").boundingBox();
+  expect(panel!.width).toBeGreaterThan(370);
+  expect(Math.abs(panel!.x + panel!.width / 2 - 207)).toBeLessThan(2);
+  const google = page.getByRole("button", { name: "Tiếp tục với Google" });
+  await expect(google).toHaveAttribute("data-theme", "filled_black");
+  expect((await google.boundingBox())!.width).toBeGreaterThan(370);
+  await page.screenshot({ path: info.outputPath("dark-mobile.png"), fullPage: true });
 });
