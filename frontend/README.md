@@ -20,6 +20,9 @@ client secret in a Vite environment variable.
 npm install
 npm run dev
 npm test
+npm run test:components
+npm run test:streaming
+npm run test:e2e
 npm run build
 ```
 

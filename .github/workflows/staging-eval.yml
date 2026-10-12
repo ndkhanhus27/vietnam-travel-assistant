@@ -1,0 +1,76 @@
+name: Staging AI evaluation
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  golden-and-guardrails:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.STAGING_EVAL_ENABLED == 'true' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    environment: staging
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: vta_eval
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d vta_eval"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/vta_eval
+      JWT_SECRET_KEY: staging-eval-secret-that-is-longer-than-32-characters
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
+      GOONG_API_KEY: ${{ secrets.GOONG_API_KEY }}
+      QDRANT_URL: ${{ secrets.STAGING_QDRANT_URL }}
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_TRACING: "true"
+      LANGSMITH_PROJECT: vietnam-travel-staging-eval
+      REDIS_ENABLED: "false"
+      RATE_LIMIT_ENABLED: "false"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-cpu.txt
+            requirements-test.txt
+      - run: python -m pip install -r requirements-cpu.txt -r requirements-test.txt
+      - run: alembic upgrade head
+        working-directory: backend
+      - name: Validate golden dataset
+        working-directory: backend
+        run: python -m evaluation.validate_dataset --qdrant-url "$QDRANT_URL"
+      - name: Run 50-case real-model golden evaluation
+        working-directory: backend
+        run: python -m evaluation.evaluate --approved-only --limit 50 --output evaluation/reports/staging-workflow.json
+      - name: Score answer quality with LangSmith-traced judge
+        working-directory: backend
+        run: python -m evaluation.judge evaluation/reports/staging-workflow.json --output evaluation/reports/staging-judge.json
+      - name: Run prompt-injection guardrails with the real model
+        working-directory: backend
+        run: python -m evaluation.guardrails --output evaluation/reports/staging-guardrails.json
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: staging-ai-evaluation
+          path: backend/evaluation/reports/staging-*.json

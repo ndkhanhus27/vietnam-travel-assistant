@@ -2,7 +2,7 @@ name: Build and deploy production
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows: ["Staging AI evaluation"]
     types: [completed]
   workflow_dispatch:
 
