@@ -11,6 +11,7 @@ from sqlalchemy import delete, func, select
 
 from app.api.dependencies import get_google_verifier, get_travel_workflow
 from app.api.dependencies import get_recovery_mailer, get_rate_limiter
+from app.api.dependencies import get_json_cache
 from app.infra.redis import RateLimitResult
 from app.core.config import settings
 from unittest.mock import patch
@@ -356,6 +357,49 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[1]["data"]["stage"], "planning")
         self.assertNotIn("node", payload)
         self.assertNotIn("chain_of_thought", payload)
+
+    async def test_context_cache_skips_history_and_rejects_stale_snapshots(self):
+        class Cache:
+            def __init__(self):
+                self.values = {}
+                self.ttls = []
+
+            async def get_json(self, key):
+                return self.values.get(key)
+
+            async def set_json(self, key, value, *, ttl_seconds):
+                self.values[key] = value
+                self.ttls.append(ttl_seconds)
+
+            async def delete(self, key):
+                self.values.pop(key, None)
+
+        cache = Cache()
+        app.dependency_overrides[get_json_cache] = lambda: cache
+        owner_id, other_id = await self._create_users("context-cache")
+        conversation_id = await self._create_conversation(owner_id)
+        endpoint = f"/api/v1/conversations/{conversation_id}/messages"
+        original = ConversationRepository.get_recent_messages
+        reads = []
+
+        async def read_history(repository, *args):
+            reads.append(args)
+            return await original(repository, *args)
+
+        with patch.object(ConversationRepository, "get_recent_messages", read_history):
+            for content in ("Plan Hue", "Add a museum"):
+                response = await self.client.post(endpoint, headers=self._user_headers(owner_id), json={"content": content})
+                self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(reads), 1)
+            self.assertEqual(len(self.workflow.calls[-1][1].recent_messages), 2)
+            denied = await self.client.post(endpoint, headers=self._user_headers(other_id), json={"content": "read private context"})
+            self.assertEqual(denied.status_code, 404)
+            for payload in cache.values.values():
+                payload["activity_version"] = "stale"
+            response = await self.client.post(endpoint, headers=self._user_headers(owner_id), json={"content": "Another day"})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(reads), 2)
+        self.assertTrue(all(ttl == 1800 for ttl in cache.ttls))
 
     async def test_assistant_feedback_is_persisted_and_owner_scoped(self) -> None:
         owner_id, other_id = await self._create_users("feedback")

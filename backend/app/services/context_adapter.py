@@ -13,6 +13,27 @@ from pipeline.agents.context import (
 CONTEXT_STATE_VERSION = 1
 
 
+def cached_conversation_context(
+    payload: Any,
+    *,
+    activity_version: str | None,
+) -> ConversationContext | None:
+    if not isinstance(payload, dict) or payload.get("activity_version") != activity_version:
+        return None
+    state = payload.get("state")
+    if (
+        not isinstance(state, dict)
+        or state.get("version") != CONTEXT_STATE_VERSION
+        or not isinstance(state.get("context"), dict)
+        or not isinstance(state.get("last_sequence_no"), int)
+    ):
+        return None
+    try:
+        return _load_stored_context(state)[0]
+    except (ValueError, TypeError):
+        return None
+
+
 def build_conversation_context(
     *,
     messages: Iterable[Message],

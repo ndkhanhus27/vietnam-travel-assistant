@@ -6,6 +6,7 @@ from typing import Any, Iterable
 import httpx
 
 from app.core.config import settings
+from app.infra.redis import ThreadJsonCache, cache_key
 
 
 Coordinate = tuple[float, float]
@@ -59,6 +60,7 @@ class GoongClient:
         - basic input validation
         - transient retry
         - safe errors
+        - optional forward-geocoding cache
 
     Không:
         - ToolObservation
@@ -66,7 +68,6 @@ class GoongClient:
         - routing reasoning
         - itinerary reasoning
         - provider response normalization
-        - Redis caching
     """
 
     _RETRYABLE_STATUS_CODES = {
@@ -87,6 +88,7 @@ class GoongClient:
         retry_backoff_seconds: float | None = None,
         http_client: httpx.Client | None = None,
         client: httpx.Client | None = None,
+        cache: ThreadJsonCache | None = None,
     ) -> None:
         if (
             http_client is not None
@@ -159,6 +161,8 @@ class GoongClient:
             if http_client is not None
             else client
         )
+
+        self.cache = cache
 
         self._owns_http_client = injected_client is None
 
@@ -746,7 +750,13 @@ class GoongClient:
             name="address",
         )
 
-        return self._get(
+        key = cache_key("geocode", self.base_url, address, include_deprecated)
+        if self.cache is not None:
+            cached = self.cache.get_json(key)
+            if isinstance(cached, dict) and cached.get("results"):
+                return cached
+
+        payload = self._get(
             "/v2/geocode",
             params={
                 "address": address,
@@ -759,6 +769,9 @@ class GoongClient:
                 ),
             },
         )
+        if self.cache is not None and payload.get("results"):
+            self.cache.set_json(key, payload, ttl_seconds=settings.cache_geocode_ttl_seconds)
+        return payload
 
     # ========================================================
     # REVERSE GEOCODE V2

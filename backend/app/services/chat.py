@@ -15,9 +15,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.db.models import AgentRun, Message
 from app.db.repositories.conversations import ConversationRepository
+from app.infra.redis import RedisJsonCache, cache_key
 from app.services.context_adapter import (
     build_conversation_context,
     serialize_conversation_context,
+    cached_conversation_context,
 )
 from pipeline.agents.context import ContextBuilder, ConversationContext
 from pipeline.agents.schemas import AgentResponse, AgentResponseType
@@ -88,10 +90,12 @@ class ChatService:
         *,
         repository: ConversationRepository | None = None,
         context_builder: ContextBuilder | None = None,
+        cache: RedisJsonCache | None = None,
     ) -> None:
         self.session = session
         self.repository = repository or ConversationRepository(session)
         self.workflow = workflow
+        self.cache = cache
         self.context_builder = (
             context_builder
             or getattr(workflow, "context_builder", None)
@@ -143,17 +147,24 @@ class ChatService:
             if conversation is None:
                 raise ConversationNotFoundError("Conversation not found")
 
-            history = await self.repository.get_recent_messages(
-                conversation_id,
-                user_id,
-                self.context_builder.max_recent_messages,
+            key = cache_key("ctx", user_id, conversation_id)
+            payload = await self.cache.get_json(key) if self.cache else None
+            context = cached_conversation_context(
+                payload,
+                activity_version=conversation.last_message_at.isoformat() if conversation.last_message_at else None,
             )
-            context = build_conversation_context(
-                messages=history,
-                context_builder=self.context_builder,
-                stored_state=conversation.context_state,
-            )
-            if conversation.title is None and not history:
+            if context is None:
+                history = await self.repository.get_recent_messages(
+                    conversation_id,
+                    user_id,
+                    self.context_builder.max_recent_messages,
+                )
+                context = build_conversation_context(
+                    messages=history,
+                    context_builder=self.context_builder,
+                    stored_state=conversation.context_state,
+                )
+            if conversation.title is None and not context.recent_messages:
                 await self.repository.update_conversation_title(
                     conversation,
                     _conversation_title(normalized_content),
@@ -170,6 +181,8 @@ class ChatService:
                 model_name=settings.gemini_model,
             )
             await self.session.commit()
+            if self.cache:
+                await self.cache.delete(key)
             return _PreparedChat(
                 user_id=user_id,
                 conversation_id=conversation_id,
@@ -365,6 +378,16 @@ class ChatService:
                 completed_at=datetime.now(timezone.utc),
             )
             await self.session.commit()
+
+            if self.cache:
+                await self.cache.set_json(
+                    cache_key("ctx", user_id, conversation_id),
+                    {
+                        "activity_version": conversation.last_message_at.isoformat() if conversation.last_message_at else None,
+                        "state": conversation.context_state,
+                    },
+                    ttl_seconds=settings.cache_context_ttl_seconds,
+                )
 
             logger.info(
                 "Chat workflow completed",

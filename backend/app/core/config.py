@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     cache_default_ttl_seconds: int = Field(default=300, gt=0)
     cache_weather_ttl_seconds: int = Field(default=1800, gt=0)
     cache_geocode_ttl_seconds: int = Field(default=86_400, gt=0)
+    cache_context_ttl_seconds: int = Field(default=1800, gt=0)
 
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.5-flash-lite"

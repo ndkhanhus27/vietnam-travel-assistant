@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
+from app.infra.redis import ThreadJsonCache
 
 from pipeline.agents.schemas import (
     ResearchDepth,
@@ -17,6 +18,7 @@ from .map_location import MapLocationTool
 from .routing import RoutingTool
 from .weather import WeatherTool
 from .web import WebSearchTool
+from .providers.goong import GoongClient
 
 if TYPE_CHECKING:
     from .knowledge import TravelKnowledgeTool
@@ -60,6 +62,7 @@ class ToolRegistry:
         map_location_tool: MapLocationTool | None = None,
         routing_tool: RoutingTool | None = None,
         distance_matrix_tool: DistanceMatrixTool | None = None,
+        geocode_cache: ThreadJsonCache | None = None,
     ) -> None:
         """
         Dependencies vẫn lazy.
@@ -88,6 +91,8 @@ class ToolRegistry:
         self._routing_tool = routing_tool
 
         self._distance_matrix_tool = distance_matrix_tool
+        self._geocode_cache = geocode_cache
+        self._goong_client: GoongClient | None = None
 
     # ========================================================
     # LAZY DEPENDENCIES
@@ -144,6 +149,12 @@ class ToolRegistry:
         return self._weather
 
     @property
+    def goong_client(self) -> GoongClient:
+        if self._goong_client is None:
+            self._goong_client = GoongClient(cache=self._geocode_cache)
+        return self._goong_client
+
+    @property
     def map_location_tool(
         self,
     ) -> MapLocationTool:
@@ -151,7 +162,7 @@ class ToolRegistry:
         if self._map_location_tool is None:
 
             self._map_location_tool = (
-                MapLocationTool()
+                MapLocationTool(client=self.goong_client)
             )
 
         return self._map_location_tool
@@ -163,7 +174,7 @@ class ToolRegistry:
 
         if self._routing_tool is None:
 
-            self._routing_tool = RoutingTool()
+            self._routing_tool = RoutingTool(client=self.goong_client)
 
         return self._routing_tool
 
@@ -175,7 +186,7 @@ class ToolRegistry:
         if self._distance_matrix_tool is None:
 
             self._distance_matrix_tool = (
-                DistanceMatrixTool()
+                DistanceMatrixTool(client=self.goong_client)
             )
 
         return self._distance_matrix_tool

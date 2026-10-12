@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import json
 import logging
 import re
@@ -153,6 +154,9 @@ class RedisJsonCache:
         except (RedisError, OSError) as exc:
             logger.warning("Redis cache read unavailable: %s", type(exc).__name__)
             return None
+        except (ValueError, TypeError):
+            logger.warning("Redis cache payload is invalid")
+            return None
 
     async def set_json(
         self,
@@ -197,6 +201,24 @@ class RedisJsonCache:
         value = await provider()
         await self.set_json(key, value, ttl_seconds=ttl_seconds)  # type: ignore[arg-type]
         return value
+
+
+class ThreadJsonCache:
+    """Use the application's async cache from synchronous provider workers."""
+
+    def __init__(self, cache: RedisJsonCache, loop: asyncio.AbstractEventLoop) -> None:
+        self.cache = cache
+        self.loop = loop
+
+    def get_json(self, key: str) -> JsonValue | None:
+        future = asyncio.run_coroutine_threadsafe(self.cache.get_json(key), self.loop)
+        return future.result()
+
+    def set_json(self, key: str, value: JsonValue, *, ttl_seconds: int) -> bool:
+        future = asyncio.run_coroutine_threadsafe(
+            self.cache.set_json(key, value, ttl_seconds=ttl_seconds), self.loop,
+        )
+        return future.result()
 
 
 class RedisLockManager:

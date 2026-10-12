@@ -12,6 +12,7 @@ from langgraph.graph import (
 )
 
 from app.core.config import settings
+from app.infra.redis import ThreadJsonCache
 
 from pipeline.agents.context import (
     ContextBuilder,
@@ -53,6 +54,7 @@ from pipeline.agents.synthesizer import (
 
 from pipeline.agents.tools import (
     ResearchEvidenceAggregator,
+    ToolRegistry,
 )
 
 from pipeline.agents.validator import (
@@ -124,6 +126,7 @@ class TravelAgentWorkflow:
         synthesizer: TravelSynthesizer | None = None,
         llm_runtime: GeminiRuntime | None = None,
         cache: Any | None = None,
+        geocode_cache: ThreadJsonCache | None = None,
     ) -> None:
 
         runtime = llm_runtime
@@ -161,6 +164,7 @@ class TravelAgentWorkflow:
             executor
             if executor is not None
             else ToolExecutor(
+                registry=ToolRegistry(geocode_cache=geocode_cache),
                 cache=cache,
                 weather_cache_ttl_seconds=settings.cache_weather_ttl_seconds,
             )
@@ -1095,6 +1099,8 @@ def _stage_event(stage: str) -> dict[str, str]:
     }
 
 
-def build_workflow(*, cache: Any | None = None) -> TravelAgentWorkflow:
+def build_workflow(
+    *, cache: Any | None = None, geocode_cache: ThreadJsonCache | None = None,
+) -> TravelAgentWorkflow:
 
-    return TravelAgentWorkflow(cache=cache)
+    return TravelAgentWorkflow(cache=cache, geocode_cache=geocode_cache)

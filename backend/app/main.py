@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import asyncio
 import logging
 
 from fastapi import FastAPI
@@ -20,7 +21,7 @@ from app.api.routes import (
 from app.core.config import settings
 from app.db.session import close_db
 from app.db.session import AsyncSessionFactory
-from app.infra.redis import RedisJsonCache, create_redis_client
+from app.infra.redis import RedisJsonCache, ThreadJsonCache, create_redis_client
 from app.services.admin import bootstrap_admin
 
 
@@ -51,7 +52,9 @@ async def lifespan(app: FastAPI):
         await bootstrap_admin(session)
 
     cache = RedisJsonCache(app.state.redis) if app.state.redis is not None else None
-    app.state.travel_workflow = build_workflow(cache=cache)
+    app.state.json_cache = cache
+    geocode_cache = ThreadJsonCache(cache, asyncio.get_running_loop()) if cache else None
+    app.state.travel_workflow = build_workflow(cache=cache, geocode_cache=geocode_cache)
     try:
         yield
     finally:

@@ -13,7 +13,7 @@ from app.core.config import settings
 from app.db.models import User
 from app.db.repositories.conversations import ConversationRepository
 from app.db.session import AsyncSessionFactory
-from app.infra.redis import RedisRateLimiter
+from app.infra.redis import RedisJsonCache, RedisRateLimiter
 from app.security.google import GoogleAuthVerifier, GoogleIdentityVerifier
 from app.security.tokens import TokenError, decode_access_token
 from app.services.auth import AuthService, InactiveUserError, UserNotFoundError
@@ -68,6 +68,12 @@ def get_rate_limiter(
     return RedisRateLimiter(redis_client)
 
 
+def get_json_cache(
+    redis_client: Annotated[object | None, Depends(get_redis)],
+) -> RedisJsonCache | None:
+    return RedisJsonCache(redis_client) if redis_client is not None else None
+
+
 async def enforce_auth_rate_limit(
     request: Request,
     limiter: Annotated[
@@ -89,8 +95,9 @@ async def enforce_auth_rate_limit(
 def get_chat_service(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     workflow: Annotated[WorkflowRunner, Depends(get_travel_workflow)],
+    cache: Annotated[RedisJsonCache | None, Depends(get_json_cache)],
 ) -> ChatService:
-    return ChatService(session, workflow)
+    return ChatService(session, workflow, cache=cache)
 
 
 def get_conversation_repository(
