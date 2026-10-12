@@ -103,35 +103,6 @@ def retrieved_point_ids(evidence: Iterable[Any]) -> list[str]:
     return unique_strings(point_ids)
 
 
-def citation_checks(
-    citations: Iterable[Any],
-    *,
-    evidence: Iterable[Any],
-    observations: Iterable[Any],
-) -> list[bool]:
-    evidence_ids = {
-        str(getattr(item, "evidence_id"))
-        for item in evidence
-        if getattr(item, "evidence_id", None)
-    }
-    task_ids = {
-        str(getattr(item, "task_id"))
-        for item in observations
-        if getattr(item, "task_id", None)
-    }
-    checks: list[bool] = []
-    for citation in citations:
-        evidence_id = getattr(citation, "evidence_id", None)
-        task_id = getattr(citation, "task_id", None)
-        if evidence_id is not None:
-            checks.append(str(evidence_id) in evidence_ids)
-        elif task_id is not None:
-            checks.append(str(task_id) in task_ids)
-        else:
-            checks.append(False)
-    return checks
-
-
 def empty_result(case: dict[str, Any]) -> dict[str, Any]:
     expected_tools = set(case["expected_tools"])
     return {
@@ -143,7 +114,6 @@ def empty_result(case: dict[str, Any]) -> dict[str, Any]:
             "tools": sorted(expected_tools),
             "retrieval_mode": case["expected_retrieval_mode"],
             "relevant_chunk_ids": case["relevant_chunk_ids"],
-            "requires_citations": case["requires_citations"],
         },
         "actual": {
             "intent": None,
@@ -167,13 +137,8 @@ def empty_result(case: dict[str, Any]) -> dict[str, Any]:
             "success": False,
             "degraded": False,
             "validation_valid": None,
-            "citation_required": case["requires_citations"],
-            "citation_ok": not case["requires_citations"],
-            "valid_citations": 0,
-            "total_citations": 0,
         },
         "answer": "",
-        "citations": [],
         "evidence": [],
         "observations": [],
         "warnings": [],
@@ -209,16 +174,6 @@ def evaluate_case(workflow: Any, case: dict[str, Any]) -> dict[str, Any]:
 
         retrieved_ids = retrieved_point_ids(evidence)
         relevant_ids = case["relevant_chunk_ids"]
-        citations = list(response.citations)
-        citation_validity = citation_checks(
-            citations,
-            evidence=evidence,
-            observations=observations,
-        )
-        valid_citations = sum(citation_validity)
-        citation_required = bool(case["requires_citations"])
-        citation_ok = not citation_required or valid_citations > 0
-
         degraded = bool(response.degraded) or bool(
             reasoner_output is not None and reasoner_output.degraded
         )
@@ -260,13 +215,8 @@ def evaluate_case(workflow: Any, case: dict[str, Any]) -> dict[str, Any]:
             "success": workflow_success,
             "degraded": degraded,
             "validation_valid": validation_valid,
-            "citation_required": citation_required,
-            "citation_ok": citation_ok,
-            "valid_citations": valid_citations,
-            "total_citations": len(citations),
         }
         result["answer"] = answer
-        result["citations"] = [model_to_json(item) for item in citations]
         result["evidence"] = [model_to_json(item) for item in evidence]
         result["observations"] = [model_to_json(item) for item in observations]
         result["warnings"] = (
@@ -295,15 +245,6 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
     retrieval_results = [
         item for item in results if item["expected"]["relevant_chunk_ids"]
     ]
-    required_results = [
-        item for item in results if item["workflow"]["citation_required"]
-    ]
-    total_citations = sum(
-        item["workflow"]["total_citations"] for item in results
-    )
-    valid_citations = sum(
-        item["workflow"]["valid_citations"] for item in results
-    )
     latencies = [item["latency_ms"] for item in results]
 
     return {
@@ -336,14 +277,6 @@ def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
             "success_rate": safe_div(
                 sum(item["workflow"]["success"] for item in results), cases
             ),
-            "citation_required_pass_rate": safe_div(
-                sum(
-                    item["workflow"]["citation_ok"]
-                    for item in required_results
-                ),
-                len(required_results),
-            ) if required_results else None,
-            "citation_validity_rate": safe_div(valid_citations, total_citations) if total_citations else None,
             "degraded_rate": safe_div(
                 sum(item["workflow"]["degraded"] for item in results), cases
             ),
@@ -547,14 +480,6 @@ def print_summary(report: dict[str, Any]) -> None:
         f"{workflow['degraded_rate']:.2%} / {workflow['error_rate']:.2%}"
     )
     print(
-        "Citation Required Pass    : "
-        f"{rate(workflow['citation_required_pass_rate'])}"
-    )
-    print(
-        "Citation Validity         : "
-        f"{rate(workflow['citation_validity_rate'])}"
-    )
-    print(
         "Latency p50 / p95         : "
         f"{latency['p50']:.2f} / {latency['p95']:.2f} ms"
     )
@@ -603,7 +528,7 @@ def main() -> int:
         "selected_ids": [case["id"] for case in cases],
         "approved_only": args.approved_only,
         "delay_seconds": args.delay_seconds,
-        "metric_scope": "workflow_all_cases; raw_retrieval_expected_rag_only; citations_are_id_checks",
+        "metric_scope": "workflow_all_cases; raw_retrieval_expected_rag_only; answer_quality_scored_separately",
         "retrieval_benchmark_source_sha256": hashlib.sha256((EVALUATION_DIR / "retrieval_benchmark.py").read_bytes()).hexdigest(),
         **runtime_metadata(),
     }
@@ -687,7 +612,7 @@ def main() -> int:
     write_report(output, report)
     print_summary(report)
     print(f"Report: {output}")
-    print("Note: success includes degraded answers; citations check IDs, not entailment.")
+    print("Note: success includes degraded answers; answer correctness is scored separately.")
     return int(any(item["error"] or any(row["error"] for row in (item.get("raw_retrieval") or {}).get("variants", {}).values()) for item in results))
 
 

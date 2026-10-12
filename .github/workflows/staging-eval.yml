@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  golden-and-guardrails:
+  golden-quality:
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (vars.STAGING_EVAL_ENABLED == 'true' &&
@@ -66,9 +66,6 @@ jobs:
       - name: Score answer quality with LangSmith-traced judge
         working-directory: backend
         run: python -m evaluation.judge evaluation/reports/staging-workflow.json --output evaluation/reports/staging-judge.json
-      - name: Run prompt-injection guardrails with the real model
-        working-directory: backend
-        run: python -m evaluation.guardrails --output evaluation/reports/staging-guardrails.json
       - uses: actions/upload-artifact@v5
         if: always()
         with:

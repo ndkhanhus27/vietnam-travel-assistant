@@ -52,7 +52,6 @@ REQUIRED_FIELDS = {
     "expected_tools",
     "expected_retrieval_mode",
     "entities",
-    "requires_citations",
     "category",
     "relevant_chunk_ids",
     "notes",
@@ -198,11 +197,6 @@ def validate_records(records: list[dict[str, Any]]) -> list[str]:
         ) != []:
             errors.append(
                 f"line {line_number}: entities must be a string list"
-            )
-
-        if not isinstance(record.get("requires_citations"), bool):
-            errors.append(
-                f"line {line_number}: requires_citations must be boolean"
             )
 
         category = record.get("category")

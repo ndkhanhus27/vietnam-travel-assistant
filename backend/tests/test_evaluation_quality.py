@@ -13,7 +13,7 @@ def test_judge_prompt_contains_question_answer_and_tool_evidence():
         "query": "Huế cuối tuần có mưa không?",
         "expected": {"intent": "WEATHER", "tools": ["weather"]},
         "answer": "Có khả năng mưa.",
-        "citations": [{"title": "Weather"}],
+        "evidence": [{"content": "Weather source data"}],
         "observations": [{"tool": "weather", "result": {"rain": True}}],
         "warnings": [],
     }
@@ -21,6 +21,7 @@ def test_judge_prompt_contains_question_answer_and_tool_evidence():
     assert result["query"] in prompt
     assert result["answer"] in prompt
     assert json.dumps(result["observations"], ensure_ascii=False) in prompt
+    assert json.dumps(result["evidence"], ensure_ascii=False) in prompt
 
 
 def test_judge_reads_cases_from_the_workflow_report_contract():

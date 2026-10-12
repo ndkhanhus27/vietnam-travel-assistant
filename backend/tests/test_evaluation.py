@@ -9,9 +9,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from evaluation.evaluate import (
-    build_report, citation_checks, empty_result, parse_args, selection_hash, summarize,
+    build_report, empty_result, parse_args, selection_hash, summarize,
     validate_resume,
     evaluate_complete_case,
+    evaluate_case,
     daily_quota_exhausted,
 )
 from evaluation.export_report import audited_summary, brief_report, export_report
@@ -25,11 +26,30 @@ def sample_case() -> dict:
         "id": "sample", "query": "Example question", "category": "factual",
         "expected_intent": "FACTUAL_TRAVEL", "expected_tools": ["search_travel_knowledge"],
         "expected_retrieval_mode": "RAG_FIRST", "relevant_chunk_ids": ["gold"],
-        "requires_citations": True, "review_status": "approved",
+        "review_status": "approved",
     }
 
 
 class EvaluationTest(unittest.TestCase):
+    def test_dataset_does_not_require_citation_labels(self):
+        case = {**sample_case(), "entities": [], "notes": None, "__line__": 1}
+        self.assertEqual(validate_records([case]), [])
+
+    def test_workflow_completion_is_measured_without_citations(self):
+        case = sample_case()
+        state = {
+            "plan": SimpleNamespace(intent=case["expected_intent"], retrieval_mode=case["expected_retrieval_mode"],
+                                    subtasks=[SimpleNamespace(tool="search_travel_knowledge")]),
+            "response": SimpleNamespace(answer="Travel answer", degraded=False),
+            "validation": SimpleNamespace(valid=True),
+        }
+        workflow = SimpleNamespace(run_sync=lambda query: state)
+        result = evaluate_case(workflow, case)
+        self.assertIsNone(result["error"])
+        self.assertTrue(result["workflow"]["success"])
+        self.assertFalse(any("citation" in key for key in result["workflow"]))
+        self.assertFalse(any("citation" in key for key in summarize([result])["workflow"]))
+
     def test_daily_quota_detection_does_not_stop_on_other_errors(self):
         self.assertTrue(daily_quota_exhausted({"error": "429 GenerateRequestsPerDayPerProjectPerModel-FreeTier"}))
         self.assertFalse(daily_quota_exhausted({"error": "429 requests per minute"}))
@@ -173,7 +193,7 @@ class EvaluationTest(unittest.TestCase):
         result["expected"]["relevant_chunk_ids"] = []
         summary = audited_summary([result])
         self.assertIsNone(summary["evidence_proxy"]["recall_at_5"])
-        self.assertIsNone(summary["citation_structure"]["valid_id_rate"])
+        self.assertNotIn("citation_structure", summary)
         self.assertIsNone(summarize([result])["retrieval"]["recall_at_5"])
 
     def test_cli_supports_separate_output_and_case_selection(self):
@@ -225,14 +245,6 @@ class EvaluationTest(unittest.TestCase):
         result = empty_result(sample_case())
         self.assertEqual(audited_summary([result])["planner"]["intent_macro_f1"], 0)
 
-    def test_citation_check_only_tests_id(self):
-        checks = citation_checks(
-            [SimpleNamespace(evidence_id="e1", task_id=None)],
-            evidence=[SimpleNamespace(evidence_id="e1", content="Unrelated content")],
-            observations=[],
-        )
-        self.assertEqual(checks, [True])
-
     def test_resume_rejects_changed_selection(self):
         with self.assertRaisesRegex(ValueError, "selection changed"):
             validate_resume({"run": {"selection_sha256": "different"}}, [sample_case()])
@@ -260,6 +272,7 @@ class EvaluationTest(unittest.TestCase):
             with (root / "export/manual_review.csv").open(encoding="utf-8-sig", newline="") as stream:
                 row = next(csv.DictReader(stream))
             self.assertEqual(row["correctness_0_2"], "")
+            self.assertFalse(any("citation" in key for key in row))
             with self.assertRaisesRegex(ValueError, "already exist"):
                 export_report(source, root / "export")
 

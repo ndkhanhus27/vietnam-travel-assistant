@@ -21,8 +21,6 @@ def audited_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
     legacy = summarize(cases)
     n = len(cases)
     retrieval = [item for item in cases if item["expected"]["relevant_chunk_ids"]]
-    required = [item for item in cases if item["workflow"]["citation_required"]]
-    citations = sum(item["workflow"]["total_citations"] for item in cases)
     labels = sorted(
         {item["expected"]["intent"] for item in cases}
         | {item["actual"]["intent"] for item in cases if item["actual"]["intent"]}
@@ -65,14 +63,6 @@ def audited_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
             "degraded_rate": ratio(sum(item["workflow"]["degraded"] for item in cases), n),
             "error_rate": ratio(sum(item["error"] is not None for item in cases), n),
         },
-        "citation_structure": {
-            "required_cases": len(required),
-            "required_pass_count": sum(item["workflow"]["citation_ok"] for item in required),
-            "required_pass_rate": ratio(sum(item["workflow"]["citation_ok"] for item in required), len(required)),
-            "total_citations": citations,
-            "valid_ids": sum(item["workflow"]["valid_citations"] for item in cases),
-            "valid_id_rate": ratio(sum(item["workflow"]["valid_citations"] for item in cases), citations),
-        },
         "latency_ms": {
             "all_cases_p50": percentile((item["latency_ms"] for item in cases), 50) if cases else None,
             "all_cases_p95": percentile((item["latency_ms"] for item in cases), 95) if cases else None,
@@ -80,8 +70,6 @@ def audited_summary(cases: list[dict[str, Any]]) -> dict[str, Any]:
         "semantic_quality": {
             "answer_correctness": None,
             "faithfulness": None,
-            "citation_precision": None,
-            "citation_recall": None,
             "note": "Not measured. Requires claim-level source checking or calibrated judges.",
         },
     }
@@ -120,7 +108,6 @@ def brief_report(report: dict[str, Any], summary: dict[str, Any], software: list
     planner = summary["planner"]
     evidence = summary["evidence_proxy"]
     operations = summary["operations"]
-    citations = summary["citation_structure"]
     latency = summary["latency_ms"]
     timestamp = run.get("started_at")
     date = "không ghi nhận"
@@ -147,7 +134,6 @@ def brief_report(report: dict[str, Any], summary: dict[str, Any], software: list
         ]),
         ("Hoàn tất qua validator, không degraded", percent(operations["nondegraded_validated_completion_rate"])),
         ("Tỷ lệ lỗi / degraded", f"{percent(operations['error_rate'])} / {percent(operations['degraded_rate'])}"),
-        ("Citation ID tồn tại", f"{citations['valid_ids']}/{citations['total_citations']} ({percent(citations['valid_id_rate'])})"),
         ("Latency P50 / P95", f"{seconds(latency['all_cases_p50'])} / {seconds(latency['all_cases_p95'])}"),
     ]
     lines = [
@@ -162,7 +148,7 @@ def brief_report(report: dict[str, Any], summary: dict[str, Any], software: list
            *[f"| {dict(dense='Dense', hybrid='Hybrid', hybrid_reranker='Hybrid + reranker').get(name, name)} | {percent(values['recall_at_5'])} | {values['mrr_at_10']:.4f} | {values['errors']} |" for name, values in retrieval_report["summary"].items()], ""] if retrieval_report else []),
         f"Lỗi: {operations['error_count']} câu; degraded: {operations['degraded_count']} câu.",
         "", "## Giới hạn", "",
-        ("Retrieval đo top-k thô; nhãn chunk có thể chưa đầy đủ. " if retrieval_report else "Retrieval đo bằng chứng sau tổng hợp, không phải top-k thô. ") + "Completion không phải độ chính xác câu trả lời. Citation ID hợp lệ không chứng minh nguồn hỗ trợ nội dung. Chưa chấm correctness/faithfulness độc lập; latency không gồm HTTP/UI và không phải load test.",
+        "Completion không phải độ chính xác câu trả lời. Retrieval phụ thuộc nhãn chunk; latency không gồm HTTP/UI và không phải load test.",
     ]
     if software:
         lines.extend([
@@ -225,7 +211,6 @@ def export_report(source: Path, destination: Path, test_reports: list[Path] | No
     planner = summary["planner"]
     evidence = summary["evidence_proxy"]
     operations = summary["operations"]
-    structure = summary["citation_structure"]
     metrics = [
         ("Intent accuracy", percent(planner["intent_accuracy"]), len(cases)),
         ("Intent macro-F1 (labels present in this run)", percent(planner["intent_macro_f1"]), len(cases)),
@@ -236,8 +221,6 @@ def export_report(source: Path, destination: Path, test_reports: list[Path] | No
         ("Legacy completion (includes degraded)", percent(operations["legacy_completion_rate"]), len(cases)),
         ("Nondegraded internally validated completion", percent(operations["nondegraded_validated_completion_rate"]), len(cases)),
         ("Degraded / error rate", f"{percent(operations['degraded_rate'])} / {percent(operations['error_rate'])}", len(cases)),
-        ("Required cases with >=1 valid citation ID", percent(structure["required_pass_rate"]), structure["required_cases"]),
-        ("Citation ID existence", percent(structure["valid_id_rate"]), structure["total_citations"]),
     ]
     lines = [
         "# Evaluation results", "",
@@ -255,7 +238,6 @@ def export_report(source: Path, destination: Path, test_reports: list[Path] | No
         "", "## Interpretation limits", "",
         "- Final evidence is filtered, deduplicated and balanced; it is not raw retriever top-k ranking.",
         f"- Maximum retained RAG IDs in this run: {evidence['max_retained_rag_ids']}.",
-        "- Citation ID existence does not measure semantic support, accuracy or citation completeness.",
         "- Neither completion definition is externally judged answer correctness.",
         "- No reference answers, claim-level correctness or human ratings are available automatically.",
         "- Latency covers run_sync, not HTTP/browser rendering; workflow construction is outside the timer.",
@@ -299,15 +281,12 @@ def export_report(source: Path, destination: Path, test_reports: list[Path] | No
     manual_rows = [{
         "id": item["id"], "category": item["category"], "query": item["query"],
         "answer": item["answer"],
-        "citations_json": json.dumps(item["citations"], ensure_ascii=False),
         "evidence_json": json.dumps(item.get("evidence", []), ensure_ascii=False),
         "observations_json": json.dumps(item.get("observations", []), ensure_ascii=False),
         "rater": "", "reference_answer": "", "reference_sources": "",
         "correctness_0_2": "", "relevance_0_2": "", "completeness_0_2": "",
         "constraint_following_0_2": "", "verifiable_claims": "",
-        "supported_claims": "", "claims_requiring_citation": "",
-        "claims_with_supporting_citations": "", "citation_links_checked": "",
-        "citation_links_supporting_claim": "", "task_success_0_1": "", "notes": "",
+        "supported_claims": "",
     } for item in cases]
     write_csv(paths[5], list(manual_rows[0]) if manual_rows else ["id"], manual_rows)
     return paths

@@ -9,8 +9,9 @@ while replacing only the agent workflow.
 
 `Staging AI evaluation` is the only workflow that calls the real model. It runs
 50 approved golden cases, scores correctness, relevance, groundedness, and
-safety with a LangSmith-traced Gemini judge, then runs the prompt-injection
-dataset. Production deployment follows this workflow instead of CI directly.
+safety with a LangSmith-traced Gemini judge. Production deployment follows
+this workflow instead of CI directly. Citation checks and prompt-injection
+guardrail tests are not part of evaluation.
 
 Configure the `staging` GitHub environment with `GEMINI_API_KEY`,
 `TAVILY_API_KEY`, `OPENWEATHER_API_KEY`, `GOONG_API_KEY`,
@@ -33,7 +34,7 @@ docker cp abc-backend-1:/home/app/workflow.json .\backend\evaluation\reports\wor
 ```
 
 Một lượt chạy workflow đủ 110 câu và đo retrieval cho 65 câu yêu cầu RAG.
-55 câu chỉ dùng web/công cụ/trả lời trực tiếp không tính vào điểm retrieval.
+45 câu chỉ dùng web/công cụ/trả lời trực tiếp không tính vào điểm retrieval.
 Nếu câu yêu cầu RAG thiếu nhãn chunk, validator báo lỗi thay vì bỏ qua.
 Workflow dùng quota Gemini/API công cụ; phần retrieval không gọi các API này.
 Chọn tên output mới mỗi lần. Để tiếp tục lượt workflow bị ngắt, dùng cùng
@@ -52,8 +53,13 @@ Lệnh xuất Markdown, CSV và JSON từ cùng lượt retrieval + workflow.
 Output sinh tự động được ignore; chỉ báo cáo ngắn được đưa
 lên Git.
 
-Recall@5/MRR@10 đo truy xuất; intent/tool metrics đo kế hoạch; completion và
-citation ID chỉ kiểm tra vận hành/cấu trúc, không phải độ chính xác câu trả lời.
+Recall@5/MRR@10 đo truy xuất; intent/tool metrics đo kế hoạch; completion
+đo vận hành, không phải độ chính xác câu trả lời. Judge chấm correctness,
+relevance, groundedness và safety từ câu trả lời, evidence và tool observations.
+
+Dataset không cần trường `requires_citations`. Giữ nguyên câu hỏi và các nhãn
+`expected_intent`, `expected_tools`, `expected_retrieval_mode`, `entities`,
+`category`, `relevant_chunk_ids`, `notes`, `review_status` để đo phần còn lại.
 
 ## Cách tính
 
@@ -61,6 +67,6 @@ citation ID chỉ kiểm tra vận hành/cấu trúc, không phải độ chính
 - MRR@10: trung bình nghịch đảo vị trí chunk đúng đầu tiên trong top 10; không tìm thấy tính 0.
 - Dense, Hybrid và Hybrid + reranker dùng cùng query và corpus; reranker dùng ứng viên Hybrid, không nhận nhãn đúng.
 - Workflow chạy cả 110 câu: intent accuracy/macro-F1, tool exact match/micro-F1, tỷ lệ lỗi/degraded, latency P50/P95.
-- Lỗi giữ trong mẫu số; 55 câu không yêu cầu RAG ghi N/A cho retrieval, không tính 0.
+- Lỗi giữ trong mẫu số; 45 câu không yêu cầu RAG ghi N/A cho retrieval, không tính 0.
 - Cố định bộ nhãn/cấu hình trước khi chạy; không chỉnh tham số theo kết quả rồi gọi đó là kiểm chứng độc lập.
 - Chỉ báo cáo full khi số câu đã chạy bằng số câu được chọn và có `completed_at`; lưu JSON gốc để đối chiếu.
