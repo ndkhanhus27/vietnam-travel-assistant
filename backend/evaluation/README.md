@@ -59,7 +59,7 @@ $exportDir = "evaluation/reports/export_backend_sources_$runTag"
 
 ..\.venv\Scripts\python.exe -m evaluation.validate_dataset --qdrant-url http://localhost:6333
 ..\.venv\Scripts\python.exe -m evaluation.evaluate --approved-only --delay-seconds 15 --output $workflowPath
-..\.venv\Scripts\python.exe -m evaluation.judge $workflowPath --output $judgePath
+..\.venv\Scripts\python.exe -m evaluation.judge $workflowPath --output $judgePath --delay-seconds 5
 ..\.venv\Scripts\python.exe -m evaluation.export_report $workflowPath --output-dir $exportDir
 ```
 
@@ -69,6 +69,12 @@ Nếu lần workflow mới bị ngắt, giữ nguyên `$workflowPath` và chạy
 `evaluation.evaluate` với `--resume`. Khi hết quota ngày, chờ quota hồi phục.
 Judge dùng Gemini thật và điểm quality nằm trong file `$judgePath`; bản export
 workflow chỉ tổng hợp planner, retrieval, completion và latency.
+
+Judge lưu checkpoint sau mỗi câu và dừng khi provider lỗi. Tiếp tục bằng cùng
+lệnh judge với `--resume`; các câu đã chấm thành công sẽ không bị gọi lại.
+Giữ nguyên file workflow, code judge, model và ngưỡng điểm khi resume. Không
+thay model giữa một lượt chấm. File judge ghi model, tiến độ và giới hạn đánh
+giá tự động dùng cùng model trong phạm vi project cá nhân.
 
 ## Chạy trên Docker local
 
