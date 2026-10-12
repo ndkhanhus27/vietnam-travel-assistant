@@ -78,34 +78,22 @@ General rules:
 
 class TravelSynthesizer:
     """
-    Generate the final Vietnamese answer and resolve citations.
+    Generate grounded Vietnamese prose with backend-owned source references.
 
-    Gemini may emit only internal source markers. URLs, citation
-    numbers, and citation metadata are resolved deterministically.
+    The model writes content only. Source IDs, numbering and URLs come
+    directly from the validated research and tool results.
     """
-
-    _MARKER_PATTERN = re.compile(
-        r"\[\[(evidence|tool):([^\[\]\s]+)\]\]"
-    )
-
-    _MARKER_COMPONENT_PATTERN = re.compile(
-        r"^(evidence|tool)\s*:\s*([^\[\],\s]+)$"
-    )
 
     _ANY_DOUBLE_BRACKET_PATTERN = re.compile(
         r"\[\[[^\[\]\n]*\]\]"
     )
 
     _NUMERIC_CITATION_PATTERN = re.compile(
-        r"\[\d+\]"
-    )
-
-    _CITATION_SPACING_PATTERN = re.compile(
-        r"\][ \t]+(?=\[\d+\])"
+        r"\[\d+(?:\s*[,;\-]\s*\d+)*\]"
     )
 
     _URL_PATTERN = re.compile(
-        r"https?://",
+        r"https?://[^\s<>\[\]()]+",
         re.IGNORECASE,
     )
 
@@ -398,24 +386,11 @@ unverified, and explicitly answer that weekend events are not confirmed.
 
 You may enrich each section with additional relevant details from the
 supplied research evidence and successful tool observations, provided
-every added factual claim is grounded and correctly cited.
+every added factual claim is grounded in those sources.
 
-The ReasonerOutput provides grounding at the individual point level.
-
-For each factual point:
-
-- Use only the evidence_ids and observation_task_ids listed on that
-  ReasonerPoint.
-
-- If you add a new grounded detail directly from the supplied source
-  data, cite only the exact source that supports that added detail.
-
-- Do not copy all evidence IDs from neighboring points.
-
-- Prefer the smallest sufficient citation set.
-
-For RAG and Web research, use evidence markers only. Tool markers are
-reserved for weather, routing, and map observations.
+Use only the supplied evidence and observations to support factual points.
+Source references are attached by the backend. You must not produce source
+IDs, citation markers, footnotes, reference lists, or source URLs.
 
 FRESHNESS POLICY:
 
@@ -516,32 +491,14 @@ word count.
 Avoid repeating the same factual information in adjacent sentences.
 Combine overlapping weather facts into one concise paragraph.
 
-Citation rules:
+SOURCE PRESENTATION:
 
-1. For a claim grounded in research evidence, append the exact marker
-   [[evidence:<evidence_id>]].
-
-2. For weather, routing, map, or other specialized tool facts,
-   append the exact marker [[tool:<task_id>]].
-
-3. Use only IDs present in the supplied source data.
-
-4. Never create a URL, Markdown link, footnote, or numeric citation such
-   as [1] or [2].
-
-5. Do not alter marker spelling, punctuation, or IDs.
-
-6. Place each marker immediately after the claim it supports. Reuse the
-   same marker when the same source supports multiple claims.
-
-7. State warnings and limitations honestly. Do not fill missing data
-   with assumptions.
-
-8. Do not mention internal pipeline stages, validation objects, IDs, or
-   marker syntax in the prose.
-
-9. Keep suggested follow-ups short and do not place citations or URLs
-   inside them.
+Write only the answer content. Do not emit [[evidence:...]], [[tool:...]],
+numeric citations such as [1], URLs, or a sources section.
+The backend constructs the source list from validated source objects.
+State warnings and limitations honestly. Do not fill missing data with
+assumptions or expose internal IDs and pipeline stages.
+Keep suggested follow-ups short and free of source markers.
 
 For ITINERARY, preserve every Ngày 1 / Ngày 2 / ... section from
 ReasonerOutput. Do not replace the itinerary with a generic introduction or
@@ -566,35 +523,24 @@ INPUT CONTEXT:
         cls,
         draft: SynthesizerOutput,
     ) -> None:
-        values = [
-            draft.answer_markdown,
-            *draft.suggested_followups,
-        ]
-
         if not draft.answer_markdown.strip():
             raise ValueError(
                 "Synthesizer returned an empty answer."
             )
 
-        for value in values:
-            if cls._URL_PATTERN.search(value):
-                raise ValueError(
-                    "Synthesizer invented a URL."
-                )
+    # ========================================================
+    # SOURCE MARKER CLEANUP
+    # ========================================================
 
-            if cls._NUMERIC_CITATION_PATTERN.search(
-                value
-            ):
-                raise ValueError(
-                    "Synthesizer emitted a numeric citation."
-                )
-
-        for followup in draft.suggested_followups:
-            if "[[" in followup or "]]" in followup:
-                raise ValueError(
-                    "Suggested follow-ups cannot contain "
-                    "citation markers."
-                )
+    @classmethod
+    def _strip_source_markers(cls, text: str) -> str:
+        text = re.sub(r"\[([^\]]+)\]\(https?://[^\s)]+\)", r"\1", text)
+        text = cls._URL_PATTERN.sub("", text)
+        text = cls._ANY_DOUBLE_BRACKET_PATTERN.sub("", text)
+        text = re.sub(r"\[\[(?:evidence|tool):[^\n]*(?:$|\n)", "", text)
+        text = cls._NUMERIC_CITATION_PATTERN.sub("", text)
+        text = re.sub(r"[ \t]+([,.!?;:])", r"\1", text)
+        return text.replace("]]", "").strip()
 
     # ========================================================
     # CITATION BUILDERS
@@ -684,83 +630,6 @@ INPUT CONTEXT:
     # DETERMINISTIC CITATION RESOLVER
     # ========================================================
 
-    @classmethod
-    def _normalize_citation_markers(
-        cls,
-        *,
-        answer_markdown: str,
-        allowed_evidence_ids: set[str],
-        allowed_task_ids: set[str],
-        evidence_by_id: dict[str, EvidenceItem],
-        observations_by_id: dict[str, ToolObservation],
-    ) -> tuple[str, list[str], bool]:
-        warnings: list[str] = []
-        unsafe = False
-
-        def normalize_group(match: re.Match[str]) -> str:
-            nonlocal unsafe
-            token = match.group(0)
-            inner = token[2:-2].strip()
-            parts = [part.strip() for part in inner.split(",")]
-            normalized: list[str] = []
-
-            for part in parts:
-                component = cls._MARKER_COMPONENT_PATTERN.fullmatch(part)
-                if component is None:
-                    warnings.append("Malformed citation marker was rejected.")
-                    unsafe = True
-                    continue
-
-                marker_type, source_id = component.groups()
-                if marker_type == "evidence":
-                    allowed = (
-                        source_id in allowed_evidence_ids
-                        and source_id in evidence_by_id
-                    )
-                else:
-                    allowed = (
-                        source_id in allowed_task_ids
-                        and source_id in observations_by_id
-                    )
-
-                if not allowed:
-                    warnings.append(
-                        f"Unselected citation ID was rejected: {source_id}."
-                    )
-                    logger.warning(
-                        "Invalid citation ID rejected",
-                        extra={"marker_type": marker_type, "source_id": source_id},
-                    )
-                    unsafe = True
-                    continue
-
-                normalized.append(f"[[{marker_type}:{source_id}]]")
-
-            if len(parts) > 1 and normalized:
-                logger.info(
-                    "Citation syntax repaired",
-                    extra={"marker_count": len(normalized)},
-                )
-
-            return "".join(normalized)
-
-        repaired = cls._ANY_DOUBLE_BRACKET_PATTERN.sub(
-            normalize_group,
-            answer_markdown,
-        )
-
-        unresolved_probe = cls._MARKER_PATTERN.sub("", repaired)
-        if "[[" in unresolved_probe or "]]" in unresolved_probe:
-            warnings.append("Unresolved citation syntax was rejected.")
-            unsafe = True
-            repaired = re.sub(
-                r"\[\[(?:evidence|tool):[^\n.!?]*",
-                "",
-                repaired,
-            ).replace("]]", "")
-
-        return repaired, list(dict.fromkeys(warnings)), unsafe
-
     @staticmethod
     def _grounded_fallback_answer(reasoner_output: ReasonerOutput) -> str:
         lines: list[str] = []
@@ -768,17 +637,7 @@ INPUT CONTEXT:
             if section.heading.strip():
                 lines.append(f"## {section.heading.strip()}")
             for point in section.points:
-                markers = [
-                    *(
-                        f"[[evidence:{item_id}]]"
-                        for item_id in point.evidence_ids
-                    ),
-                    *(
-                        f"[[tool:{task_id}]]"
-                        for task_id in point.observation_task_ids
-                    ),
-                ]
-                lines.append(f"- {point.text.strip()}{''.join(markers)}")
+                lines.append(f"- {point.text.strip()}")
 
         if not lines:
             limitations = [
@@ -792,84 +651,22 @@ INPUT CONTEXT:
         return "\n".join(lines)
 
     @classmethod
-    def _resolve_citations_with_warnings(
+    def _source_citations(
         cls,
         *,
-        answer_markdown: str,
-        reasoner_output: ReasonerOutput,
         research_evidence: list[EvidenceItem],
         observations: list[ToolObservation],
-    ) -> tuple[str, list[Citation], list[str]]:
-        evidence_ids, task_ids = cls._reasoner_reference_ids(reasoner_output)
-        allowed_evidence_ids = set(evidence_ids)
-        allowed_task_ids = set(task_ids)
-        evidence_by_id = cls._index_evidence(research_evidence)
-        observations_by_id = cls._index_observations(observations)
-
-        answer_markdown, warnings, unsafe = cls._normalize_citation_markers(
-            answer_markdown=answer_markdown,
-            allowed_evidence_ids=allowed_evidence_ids,
-            allowed_task_ids=allowed_task_ids,
-            evidence_by_id=evidence_by_id,
-            observations_by_id=observations_by_id,
-        )
-        if unsafe:
-            answer_markdown = cls._grounded_fallback_answer(reasoner_output)
-            warnings.append(
-                "The generated answer used invalid citation syntax; a grounded fallback was used."
-            )
-
-        marker_numbers: dict[tuple[str, str], int] = {}
+    ) -> list[Citation]:
         citations: list[Citation] = []
-
-        def replace_marker(match: re.Match[str]) -> str:
-            marker_type, source_id = match.groups()
-            marker_key = (marker_type, source_id)
-            citation_number = marker_numbers.get(marker_key)
-            if citation_number is None:
-                citation_number = len(citations) + 1
-                marker_numbers[marker_key] = citation_number
-                if marker_type == "evidence":
-                    citation = cls._evidence_citation(
-                        citation_id=str(citation_number),
-                        evidence=evidence_by_id[source_id],
-                    )
-                else:
-                    citation = cls._tool_citation(
-                        citation_id=str(citation_number),
-                        observation=observations_by_id[source_id],
-                    )
-                citations.append(citation)
-            return f"[{citation_number}]"
-
-        answer = cls._MARKER_PATTERN.sub(replace_marker, answer_markdown)
-        answer = cls._CITATION_SPACING_PATTERN.sub("]", answer)
-
-        if (allowed_evidence_ids or allowed_task_ids) and not citations:
-            fallback = cls._grounded_fallback_answer(reasoner_output)
-            answer = cls._MARKER_PATTERN.sub(replace_marker, fallback)
-            warnings.append(
-                "Citation coverage was restored from the grounded answer plan."
-            )
-
-        return answer.strip(), citations, list(dict.fromkeys(warnings))
-
-    @classmethod
-    def _resolve_citations(
-        cls,
-        *,
-        answer_markdown: str,
-        reasoner_output: ReasonerOutput,
-        research_evidence: list[EvidenceItem],
-        observations: list[ToolObservation],
-    ) -> tuple[str, list[Citation]]:
-        answer, citations, _warnings = cls._resolve_citations_with_warnings(
-            answer_markdown=answer_markdown,
-            reasoner_output=reasoner_output,
-            research_evidence=research_evidence,
-            observations=observations,
-        )
-        return answer, citations
+        for evidence in cls._index_evidence(research_evidence).values():
+            citations.append(cls._evidence_citation(
+                citation_id=str(len(citations) + 1), evidence=evidence,
+            ))
+        for observation in cls._index_observations(observations).values():
+            citations.append(cls._tool_citation(
+                citation_id=str(len(citations) + 1), observation=observation,
+            ))
+        return citations
 
     # ========================================================
     # USED TOOLS
@@ -963,8 +760,11 @@ INPUT CONTEXT:
 
         self._validate_llm_text(draft)
 
-        answer_markdown = draft.answer_markdown
+        answer_markdown = self._strip_source_markers(draft.answer_markdown)
         output_warnings: list[str] = []
+        if not answer_markdown:
+            answer_markdown = self._grounded_fallback_answer(reasoner_output)
+            output_warnings.append("The writer returned no answer content; the grounded answer plan was used.")
         if plan.intent.value == "ITINERARY":
             expected_headings = [
                 section.heading
@@ -980,25 +780,22 @@ INPUT CONTEXT:
                     "The itinerary output contract was restored from the grounded answer plan."
                 )
 
-        answer, citations, citation_warnings = self._resolve_citations_with_warnings(
-            answer_markdown=answer_markdown,
-            reasoner_output=reasoner_output,
+        citations = self._source_citations(
             research_evidence=selected_evidence,
             observations=selected_observations,
         )
 
         return AgentResponse(
-            answer=answer,
+            answer=answer_markdown.strip(),
             citations=citations,
             intent=plan.intent,
             used_tools=self._used_tools(citations),
             suggested_followups=(
-                draft.suggested_followups
+                [self._strip_source_markers(item) for item in draft.suggested_followups]
             ),
-            warnings=list(dict.fromkeys([*output_warnings, *citation_warnings])),
+            warnings=list(dict.fromkeys(output_warnings)),
             degraded=(
                 reasoner_output.degraded
                 or bool(output_warnings)
-                or bool(citation_warnings)
             ),
         )

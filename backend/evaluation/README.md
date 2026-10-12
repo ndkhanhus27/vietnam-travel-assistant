@@ -21,6 +21,33 @@ Configure the `staging` GitHub environment with `GEMINI_API_KEY`,
 Bộ dữ liệu có 110 câu, 10 nhóm; 65 câu yêu cầu RAG và có nhãn chunk.
 [Kết quả đã chạy](reports/report_vi.md).
 
+## Chạy lại toàn bộ từ đầu trên Windows
+
+Từ PowerShell, dùng tên output mới để tách lần chạy với cơ chế nguồn tham khảo
+do backend tạo. Không resume báo cáo của phiên bản cũ. Gemini chỉ viết nội dung;
+backend tạo danh sách nguồn từ dữ liệu đã chọn, không chấm citation trong eval.
+
+```powershell
+cd D:\abc\backend
+$env:PYTHONIOENCODING = "utf-8"
+$runTag = Get-Date -Format "yyyyMMdd_HHmmss"
+$workflowPath = "evaluation/reports/workflow_backend_sources_$runTag.json"
+$judgePath = "evaluation/reports/judge_backend_sources_$runTag.json"
+$exportDir = "evaluation/reports/export_backend_sources_$runTag"
+
+..\.venv\Scripts\python.exe -m evaluation.validate_dataset --qdrant-url http://localhost:6333
+..\.venv\Scripts\python.exe -m evaluation.evaluate --approved-only --delay-seconds 15 --output $workflowPath
+..\.venv\Scripts\python.exe -m evaluation.judge $workflowPath --output $judgePath
+..\.venv\Scripts\python.exe -m evaluation.export_report $workflowPath --output-dir $exportDir
+```
+
+Chạy từng lệnh và kiểm tra kết quả trước khi qua bước tiếp theo. Dataset phải
+validate thành công, workflow phải hoàn tất 110/110 câu trước khi chạy judge.
+Nếu lần workflow mới bị ngắt, giữ nguyên `$workflowPath` và chạy lại lệnh
+`evaluation.evaluate` với `--resume`. Khi hết quota ngày, chờ quota hồi phục.
+Judge dùng Gemini thật và điểm quality nằm trong file `$judgePath`; bản export
+workflow chỉ tổng hợp planner, retrieval, completion và latency.
+
 ## Chạy trên Docker local
 
 Trong PowerShell tại thư mục repo, sau khi backend và Qdrant đã chạy:

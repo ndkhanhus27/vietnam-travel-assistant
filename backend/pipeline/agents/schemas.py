@@ -1033,12 +1033,8 @@ class SynthesizerOutput(StrictModel):
     """
     Draft do LLM tạo.
 
-    Citation vẫn dùng internal marker:
-
-        [[evidence:<evidence_id>]]
-        [[tool:<task_id>]]
-
-    Citation resolver sẽ xử lý deterministic sau.
+    LLM chỉ viết nội dung, không tạo ID hay marker citation.
+    Backend tạo danh sách nguồn từ evidence và observations đã chọn.
     """
 
     answer_markdown: str
