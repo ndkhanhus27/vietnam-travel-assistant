@@ -54,9 +54,9 @@ Cloud Console and `CORS_ORIGINS`.
 
 - Local registration, login, session bootstrap, rotating refresh, and logout
 - Google Identity Services credential exchange when configured
-- Authenticated Google-first users can create a local password in account settings
+- Account settings show actual sign-in methods; Google-only users manage their password through Google
 - Conversation list, create, rename, archive, unarchive, delete, and history
-- POST SSE chat with buffered incremental parsing
+- POST SSE with incremental event parsing; stage/tool progress and a final answer, not Gemini token streaming
 - Progress, tool activity, persisted completion, citations, warnings, and 429
 - Route restoration at `/c/:conversationId`
 - Three persisted appearance palettes matching the supplied color variants
@@ -71,7 +71,7 @@ API:
 
 ```env
 ADMIN_BOOTSTRAP_ENABLED=true
-ADMIN_EMAIL=admin@example.com
+ADMIN_EMAIL=your-admin@gmail.com
 ADMIN_INITIAL_PASSWORD=replace-with-a-strong-local-password
 ```
 

@@ -35,12 +35,13 @@ does not claim that a micro instance is sufficient.
 
 ## 2. Local production-like validation
 
+`docker compose config` may print interpolated secrets; do not share its output.
+
 From the repository root:
 
 ```bash
 cp deploy/.env.production.example .env.production
-# Replace every placeholder and add provider keys.
-docker compose --env-file .env.production -f docker-compose.prod.yml config
+# Replace every placeholder and add provider keys; never overwrite an existing environment.
 docker compose --env-file .env.production -f docker-compose.prod.yml build
 docker compose --env-file .env.production -f docker-compose.prod.yml run --rm backend alembic upgrade head
 docker compose --env-file .env.production -f docker-compose.prod.yml up -d
@@ -86,9 +87,9 @@ permissions to `600`. Required application values include:
 - `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `DATABASE_URL`
 - `REDIS_URL`, `QDRANT_URL`, `QDRANT_COLLECTION`
 - `JWT_SECRET_KEY`, `GOOGLE_CLIENT_ID`
-- `GEMINI_API_KEY`, `TAVILY_API_KEY`
+- `GEMINI_API_KEY`, `GEMINI_MODEL`, `TAVILY_API_KEY`
 - `OPENWEATHER_API_KEY`, `GOONG_API_KEY`
-- `APP_DOMAIN`, `ACME_EMAIL`
+- `APP_DOMAIN`, `ACME_EMAIL`, `PUBLIC_APP_URL`
 
 The Compose-internal URLs must use `postgres`, `redis`, and `qdrant`, not
 `localhost`. For same-origin production traffic, `CORS_ORIGINS` may be empty.
@@ -161,16 +162,16 @@ prints only the variable name, never its value.
 
 Keep `PRODUCTION_DEPLOY_ENABLED` unset or set to `false` until the EC2 host,
 production secrets, and `/opt/vietnam-travel-advisor/.env.production` are
-ready. Set it to `true` to enable automatic deployment after successful CI on
-`main`. Manual `workflow_dispatch` remains available for deliberate releases.
+ready. Set it to `true` to enable deployment after successful staging AI evaluation on
+`main`; automatic staging also requires `STAGING_EVAL_ENABLED=true`. Manual `workflow_dispatch` remains available for deliberate releases.
 
 Generate `EC2_KNOWN_HOSTS` from a trusted network and verify the fingerprint
 out of band. Do not replace it with `StrictHostKeyChecking=no`.
 
 CI runs on pushes and pull requests. When `PRODUCTION_DEPLOY_ENABLED=true`, a
-successful CI run on `main` starts the deploy workflow. It builds two GHCR
+successful `Staging AI evaluation` run on `main` starts the deploy workflow. It builds two GHCR
 images tagged `sha-<full-commit-sha>`, uploads only
-Compose and the deploy script, migrates with Alembic, starts services, and
+Compose, Caddyfile and the deploy script, migrates with Alembic, starts services, and
 checks `/health`. Production concurrency prevents overlapping deploys.
 
 ## 7. Migrations and rollback
@@ -271,16 +272,17 @@ docker compose --env-file .deploy.env --env-file .env.production \
   'from app.core.config import settings; from qdrant_client import QdrantClient; c=QdrantClient(url=settings.qdrant_url); i=c.get_collection(settings.qdrant_collection); v=i.config.params.vectors; print(f"collection={settings.qdrant_collection} points={i.points_count} vector_size={v.size} distance={v.distance}")'
 ```
 
-Expected output is `documents=84`, `entity_candidates=1843`, and
-`collection=travel_chunks points=287 vector_size=1024 distance=Cosine`. A
-mismatch is a failed bootstrap, not a reason to make normal deploys destructive.
+The recorded corpus baseline is `documents=84`, `entity_candidates=1843`, and
+`collection=travel_chunks points=287 vector_size=1024 distance=Cosine`.
+Compare with the validated bundle being imported; later corpora may differ.
+Do not recreate an existing production index during a routine deploy.
 
 Warm both RAG models and exercise real retrieval from inside the EC2 backend:
 
 ```bash
 docker compose --env-file .deploy.env --env-file .env.production \
   -f docker-compose.prod.yml exec -T backend \
-  python -m pipeline.rag.ask "Ga Đà Lạt có gì đặc biệt?"
+  python -m pipeline.rag.ask "Đà Lạt có gì?"
 docker stats --no-stream
 ```
 

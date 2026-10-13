@@ -1,42 +1,42 @@
 # Evaluation
 
-[Báo cáo kết quả](reports/report_vi.md) | [Hướng dẫn chạy](RUNBOOK.md).
+[Measured report](reports/report_vi.md) | [Run instructions](RUNBOOK.md).
 
-## Phạm vi
+## Scope
 
-Dataset gồm 110 câu thuộc 10 nhóm, trong đó 65 câu có nhãn truy xuất.
-Đánh giá bao gồm lập kế hoạch, truy xuất, vận hành và chất lượng trả lời.
-Không chấm citation và không chạy bộ guardrail riêng.
+The dataset contains 110 questions in 10 categories, including 65 retrieval-labeled
+cases. Evaluation covers planning, retrieval, execution, and answer quality.
+Citation scoring and a dedicated guardrail suite are excluded.
 
-Cấu hình BGE: `BAAI/bge-reranker-v2-m3`, revision
+The BGE preset uses `BAAI/bge-reranker-v2-m3`, revision
 `953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`, CPU INT8,
-10 ứng viên, hybrid limit 12, rerank limit 6. Benchmark ngày 12/10/2026
-đạt Recall@5 82,31%; kết quả này không thay thế workflow đã chạy với mMARCO.
+10 candidates, hybrid limit 12, and rerank limit 6. The 12 October 2026 benchmark
+achieved Recall@5 of 82.31%; it does not replace the completed mMARCO workflow.
 
-## CI và staging
+## CI and Staging
 
-CI thông thường chạy unit, integration, contract, component, streaming và
-browser tests với agent được mock, không gọi LLM thật. Browser tests giữ
-các ranh giới HTTP, SQL, auth và SSE qua `tests.e2e_app`.
+Normal CI runs unit, integration, contract, component, streaming, and browser
+tests with a mocked agent, without live LLM calls. Browser tests retain HTTP,
+SQL, authentication, and SSE boundaries through `tests.e2e_app`.
 
-Workflow `Staging AI evaluation` chạy 50 câu được duyệt với model thật,
-sau đó dùng Gemini judge chấm correctness, relevance, groundedness và safety.
-Đây là tập con, không thay thế đánh giá đầy đủ 110 câu. Deployment production
-theo workflow staging thay vì CI trực tiếp.
+`Staging AI evaluation` runs the first 50 approved cases with the real model
+and a Gemini judge for correctness, relevance, groundedness, and safety.
+This subset does not replace the full 110-case evaluation. Automatic deployment
+follows successful staging, not CI directly.
 
-Thiết lập secrets trong GitHub environment `staging`: `GEMINI_API_KEY`,
+Configure GitHub environment `staging` secrets: `GEMINI_API_KEY`,
 `TAVILY_API_KEY`, `OPENWEATHER_API_KEY`, `GOONG_API_KEY`,
-`STAGING_QDRANT_URL`, `LANGSMITH_API_KEY`. Biến repository
-`STAGING_EVAL_ENABLED=true` bật gate tự động cho nhánh main.
+`STAGING_QDRANT_URL`, and `LANGSMITH_API_KEY`. Repository variable
+`STAGING_EVAL_ENABLED=true` enables the automatic main-branch gate.
 
-## Lưu kết quả
+## Report Storage
 
-JSON và CSV sinh tự động được ignore; giữ ở local để đối chiếu.
-Chỉ đưa báo cáo ngắn và hướng dẫn vào Git. Xuất thêm bảng từ report có sẵn
-(không gọi Gemini), chạy tại thư mục `backend`:
+Generated JSON and CSV files remain ignored and local for auditing.
+Commit only the concise report and instructions. To export an existing workflow
+without calling Gemini, run from `backend`:
 
 ```powershell
 ..\.venv\Scripts\python.exe -m evaluation.export_report evaluation/reports/full_20261012_203925.json --output-dir evaluation/reports/export
 ```
 
-Export workflow không chứa điểm judge; đối chiếu file judge riêng.
+Workflow exports do not contain judge scores; retain the separate judge report.
