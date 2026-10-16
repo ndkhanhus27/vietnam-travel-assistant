@@ -67,7 +67,6 @@ export type AdminAgentRunPage = {
 export type AdminKnowledge = {
   documents: number;
   active_documents: number;
-  entity_candidates: number;
   last_import_at: string | null;
   collection: string;
   qdrant_status: string;

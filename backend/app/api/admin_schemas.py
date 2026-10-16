@@ -79,7 +79,6 @@ class AdminAgentRunPage(BaseModel):
 class AdminKnowledgeResponse(BaseModel):
     documents: int
     active_documents: int
-    entity_candidates: int
     last_import_at: datetime | None
     collection: str
     qdrant_status: str

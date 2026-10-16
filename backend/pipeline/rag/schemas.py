@@ -21,6 +21,3 @@ class RagChunk(BaseModel):
     language: str
 
     fetched_at: str | None = None
-
-    entities: list[str]
-    entity_types: list[str]

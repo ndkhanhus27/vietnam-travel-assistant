@@ -505,7 +505,7 @@ class ProductionApiRegressionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["qdrant_status"], "unavailable")
         self.assertIn("documents", response.json())
-        self.assertIn("entity_candidates", response.json())
+        self.assertNotIn("entity_candidates", response.json())
 
     async def test_google_link_requires_correct_password_and_preserves_user(self):
         email = self._email("link-proof")

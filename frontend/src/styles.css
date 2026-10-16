@@ -611,7 +611,7 @@ body:has(.auth-page) { min-width: 0; overflow: auto; }
 .admin-metadata dl > div { display: flex; justify-content: space-between; gap: 16px; padding: 11px 12px; border: 1px solid var(--border-subtle); border-radius: 9px; font-size: 12px; }
 .admin-metadata dt { color: var(--text-secondary); }
 .admin-metadata dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
-.knowledge-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.knowledge-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .knowledge-metrics .metric-item { border: 1px solid var(--border-subtle); border-radius: 14px; background: var(--bg-secondary); }
 .knowledge-metrics small { color: var(--text-secondary); }
 
@@ -837,7 +837,7 @@ body:has(.auth-page) { min-width: 0; overflow: auto; }
 .admin-tool-list { display: grid; gap: 10px; }
 .admin-tool-list > div { display: flex; align-items: center; gap: 10px; padding: 12px 13px; border: 1px solid var(--border-subtle); border-radius: 14px; font-size: 13px; }
 .admin-tool-list > div > span { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; background: var(--active-bg); color: var(--accent); font-size: 11px; }
-.knowledge-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
+.knowledge-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 16px; }
 
 @media (max-width: 1200px) {
   .app-shell, .admin-page { grid-template-columns: 250px minmax(0, 1fr); }

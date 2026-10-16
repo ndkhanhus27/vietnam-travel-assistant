@@ -21,7 +21,7 @@ async function mockAuthenticatedApi(page: Page) {
     const url = new URL(route.request().url());
     const path = url.pathname;
     if (path.endsWith("/admin/agent-runs")) return route.fulfill({ json: { items: [], total: 0, limit: 20, offset: 0 } });
-    if (path.endsWith("/admin/knowledge")) return route.fulfill({ json: { documents: 84, active_documents: 84, entity_candidates: 1843, last_import_at: null, collection: "travel_chunks", qdrant_status: "green", points: 287, vector_size: 1024, distance: "Cosine" } });
+    if (path.endsWith("/admin/knowledge")) return route.fulfill({ json: { documents: 84, active_documents: 84, last_import_at: null, collection: "travel_chunks", qdrant_status: "green", points: 287, vector_size: 1024, distance: "Cosine" } });
     if (path.endsWith("/users/me")) return route.fulfill({ json: user });
     if (path.endsWith("/conversations")) return route.fulfill({ json: [
       { id: "chat-1", title: "Lịch trình Đà Lạt 3 ngày", created_at: "2026-10-11T01:00:00Z", updated_at: "2026-10-11T01:30:00Z", last_message_at: "2026-10-11T01:30:00Z", is_archived: false },
@@ -64,6 +64,20 @@ for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "
   });
 }
 
+for (const viewport of [{ name: "desktop", width: 1440, height: 900 }, { name: "mobile", width: 390, height: 844 }]) {
+  test(`entity-free knowledge metrics fit ${viewport.name}`, async ({ page }, info) => {
+    await mockAuthenticatedApi(page);
+    await page.setViewportSize(viewport);
+    await page.goto("/admin");
+    await page.getByRole("navigation").getByRole("button", { name: "Kho tri thức", exact: true }).click();
+    await expect(page.locator(".knowledge-metrics .admin-metric-card")).toHaveCount(3);
+    await expect(page.getByText("Entity candidates", { exact: true })).toHaveCount(0);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    await page.screenshot({ path: info.outputPath("knowledge.png"), fullPage: true });
+  });
+}
+
 test("admin navigation and theme remain usable on mobile", async ({ page }) => {
   await mockAuthenticatedApi(page);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -81,6 +95,7 @@ test("admin navigation and theme remain usable on mobile", async ({ page }) => {
     await expect(page.getByRole("alert")).toHaveCount(0);
   }
   await expect(page.getByText("travel_chunks").first()).toBeVisible();
+  await expect(page.getByText("Entity candidates", { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });
 

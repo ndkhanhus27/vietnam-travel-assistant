@@ -127,18 +127,9 @@ class QdrantBm25Index:
     ) -> str:
         title = str(payload.get("title", ""))
         content = str(payload.get("content", ""))
-        entities = payload.get("entities", []) or []
-        primary_entities = payload.get("primary_entities", []) or []
-
-        # Title + primary entity được repeat nhẹ
-        # để proper noun có trọng số lexical tốt hơn.
-
         parts = [
             title,
             title,
-            " ".join(str(x) for x in primary_entities),
-            " ".join(str(x) for x in primary_entities),
-            " ".join(str(x) for x in entities),
             content,
         ]
 

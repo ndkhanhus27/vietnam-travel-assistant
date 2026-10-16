@@ -1,4 +1,5 @@
 from __future__ import annotations
+import re
 from threading import Lock
 
 from pipeline.agents.schemas import (
@@ -55,8 +56,6 @@ class TravelKnowledgeTool:
         BGE-M3 Dense
         +
         BM25
-        +
-        Entity signal
         ↓
         Weighted RRF
         ↓
@@ -151,69 +150,16 @@ class TravelKnowledgeTool:
         entity: str,
         chunk: RerankedChunk,
     ) -> bool:
-        """
-        Kiểm tra chunk RAG có thực sự cover entity.
-
-        Hiện chỉ dùng strong metadata:
-
-        1. document title
-        2. primary_entities
-
-        Không dùng toàn bộ `entities`
-        vì payload hiện tại có thể chứa
-        document-level entities copy vào
-        nhiều chunk.
-        """
-
-        target = normalize_text(
-            entity
-        )
-
+        """Use title or repeated content mentions, never corpus entity metadata."""
+        target = normalize_text(entity)
         if not target:
             return False
-
-        # ----------------------------------------------------
-        # TITLE
-        # ----------------------------------------------------
-
-        title = normalize_text(
-            chunk.title
-            or ""
-        )
-
-        if title:
-
-            if title == target:
-                return True
-
-            if target in title:
-                return True
-
-
-        # ----------------------------------------------------
-        # PRIMARY ENTITIES
-        # ----------------------------------------------------
-
-        for primary in (
-            chunk.primary_entities
-            or []
-        ):
-
-            candidate = normalize_text(
-                str(primary)
-            )
-
-            if not candidate:
-                continue
-
-            if candidate == target:
-                return True
-
-            if target in candidate:
-                return True
-
-
-        return False
+        pattern = re.compile(r"(?<!\w)" + re.escape(target) + r"(?!\w)")
+        if pattern.search(normalize_text(chunk.title or "")):
+            return True
+        # One incidental mention is not sufficient to claim place coverage.
+        content = normalize_text(chunk.content or "")
+        return len(pattern.findall(content)) >= 2
 
     # ============================================================
     # RAG CHUNK → UNIFIED EVIDENCE

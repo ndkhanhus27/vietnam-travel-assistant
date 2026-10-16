@@ -14,9 +14,9 @@ from pipeline.agents.tools.knowledge import TravelKnowledgeTool
 
 def candidate(point_id):
     return SimpleNamespace(point_id=point_id, hybrid_score=.03, dense_rank=1, dense_score=.8,
-        bm25_rank=2, bm25_score=3, entity_rank=None, document_id="doc", chunk_index=0,
+        bm25_rank=2, bm25_score=3, document_id="doc", chunk_index=0,
         title="Title", content="Content", source_name="Source", source_url="https://example.com",
-        entities=[], entity_types=[], primary_entities=[])
+        )
 
 
 class RerankerTests(unittest.TestCase):

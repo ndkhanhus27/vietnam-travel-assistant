@@ -46,7 +46,7 @@ class TravelRAGService:
 
         # Full retrieval stack:
         #
-        # Dense + BM25 + Entity
+        # Dense + BM25
         # → RRF
         # → CrossEncoder
 

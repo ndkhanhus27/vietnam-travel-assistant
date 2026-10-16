@@ -24,10 +24,21 @@ class CorpusTransferValidationTest(unittest.TestCase):
         bundle = self._bundle()
         self.assertIs(validate_bundle(bundle), bundle)
 
-    def test_rejects_candidate_with_missing_document(self) -> None:
+    def test_accepts_documents_only_v2(self) -> None:
         bundle = self._bundle()
+        del bundle["entity_candidates"]
+        self.assertIs(validate_bundle(bundle), bundle)
+
+    def test_legacy_entities_are_ignored(self) -> None:
+        bundle = self._bundle()
+        bundle["format_version"] = 1
         bundle["entity_candidates"][0]["document_id"] = str(uuid.uuid4())
-        with self.assertRaisesRegex(ValueError, "missing document"):
+        self.assertIs(validate_bundle(bundle), bundle)
+
+    def test_rejects_unknown_version(self) -> None:
+        bundle = self._bundle()
+        bundle["format_version"] = 99
+        with self.assertRaisesRegex(ValueError, "format_version"):
             validate_bundle(bundle)
 
     def test_rejects_duplicate_document_ids(self) -> None:

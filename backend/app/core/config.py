@@ -45,8 +45,6 @@ class Settings(BaseSettings):
     gemini_api_key: str | None = None
     gemini_model: str = "gemini-3.5-flash-lite"
 
-    entity_extractor_version: str = "entity-v1"
-    entity_extract_max_chars: int = 24_000
 
     model_config = SettingsConfigDict(
         env_file=BACKEND_DIR / ".env",
@@ -84,7 +82,6 @@ class Settings(BaseSettings):
 
     rag_rrf_dense_weight: float = 1.0
     rag_rrf_bm25_weight: float = 1.0
-    rag_rrf_entity_weight: float = 0.5
     
     # ============================================================
     # RERANKER

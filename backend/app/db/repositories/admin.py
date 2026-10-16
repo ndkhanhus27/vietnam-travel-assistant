@@ -13,7 +13,6 @@ from app.db.models import (
     AuthAccount,
     Conversation,
     Document,
-    EntityCandidate,
     Message,
     RefreshToken,
     User,
@@ -275,12 +274,11 @@ class AdminRepository:
         return list(rows.all()), total
 
     async def knowledge_counts(self) -> dict[str, object]:
-        documents, active_documents, entities, last_import = (
+        documents, active_documents, last_import = (
             await self.session.execute(
                 select(
                     select(func.count(Document.id)).scalar_subquery(),
                     select(func.count(Document.id)).where(Document.is_active.is_(True)).scalar_subquery(),
-                    select(func.count(EntityCandidate.id)).scalar_subquery(),
                     select(func.max(Document.fetched_at)).scalar_subquery(),
                 )
             )
@@ -288,6 +286,5 @@ class AdminRepository:
         return {
             "documents": int(documents),
             "active_documents": int(active_documents),
-            "entity_candidates": int(entities),
             "last_import_at": last_import,
         }

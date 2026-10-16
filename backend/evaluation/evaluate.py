@@ -416,7 +416,7 @@ def runtime_metadata() -> dict[str, Any]:
         "rag_retrieve_limit", "rag_context_chunks", "rag_max_chunks_per_document",
         "rag_dense_candidates", "rag_bm25_candidates", "rag_hybrid_limit",
         "rag_rrf_k", "rag_rrf_dense_weight", "rag_rrf_bm25_weight",
-        "rag_rrf_entity_weight", "rag_rerank_candidates",
+        "rag_rerank_candidates",
         "rag_reranker_batch_size", "rag_reranker_max_length",
         "rag_reranker_cpu_int8",
         "rag_reranker_revision",

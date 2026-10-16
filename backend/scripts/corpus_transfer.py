@@ -12,11 +12,11 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from app.db.models import Document, EntityCandidate
+from app.db.models import Document
 from app.db.session import AsyncSessionFactory, close_db
 
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 def _datetime(value: datetime) -> str:
@@ -39,13 +39,12 @@ def _parse_uuid(value: Any, field: str) -> uuid.UUID:
 def validate_bundle(bundle: Any) -> dict[str, Any]:
     if not isinstance(bundle, dict):
         raise ValueError("Corpus bundle must be a JSON object")
-    if bundle.get("format_version") != FORMAT_VERSION:
+    if bundle.get("format_version") not in (1, FORMAT_VERSION):
         raise ValueError("Unsupported corpus bundle format_version")
 
     documents = bundle.get("documents")
-    candidates = bundle.get("entity_candidates")
-    if not isinstance(documents, list) or not isinstance(candidates, list):
-        raise ValueError("Corpus bundle must contain both row lists")
+    if not isinstance(documents, list):
+        raise ValueError("Corpus bundle must contain documents")
 
     document_ids = {
         _parse_uuid(row.get("id"), "documents.id")
@@ -54,21 +53,6 @@ def validate_bundle(bundle: Any) -> dict[str, Any]:
     }
     if len(document_ids) != len(documents):
         raise ValueError("Document rows contain invalid or duplicate IDs")
-
-    candidate_ids: set[uuid.UUID] = set()
-    for row in candidates:
-        if not isinstance(row, dict):
-            raise ValueError("Entity candidate rows must be JSON objects")
-        candidate_id = _parse_uuid(row.get("id"), "entity_candidates.id")
-        if candidate_id in candidate_ids:
-            raise ValueError("Entity candidate rows contain duplicate IDs")
-        candidate_ids.add(candidate_id)
-        document_id = _parse_uuid(
-            row.get("document_id"),
-            "entity_candidates.document_id",
-        )
-        if document_id not in document_ids:
-            raise ValueError("Entity candidate references a missing document")
 
     return bundle
 
@@ -81,21 +65,13 @@ def _open_text(path: Path, mode: str, *, compressed: bool | None = None):
     return path.open(mode, encoding="utf-8")
 
 
-async def export_corpus(path: Path) -> tuple[int, int]:
+async def export_corpus(path: Path) -> int:
     async with AsyncSessionFactory() as session:
         documents = list(
             (
                 await session.execute(select(Document).order_by(Document.id))
             ).scalars()
         )
-        candidates = list(
-            (
-                await session.execute(
-                    select(EntityCandidate).order_by(EntityCandidate.id)
-                )
-            ).scalars()
-        )
-
     bundle = {
         "format_version": FORMAT_VERSION,
         "documents": [
@@ -115,20 +91,6 @@ async def export_corpus(path: Path) -> tuple[int, int]:
             }
             for row in documents
         ],
-        "entity_candidates": [
-            {
-                "id": str(row.id),
-                "document_id": str(row.document_id),
-                "name": row.name,
-                "normalized_name": row.normalized_name,
-                "entity_type": row.entity_type,
-                "role": row.role,
-                "mention_text": row.mention_text,
-                "confidence": row.confidence,
-                "created_at": _datetime(row.created_at),
-            }
-            for row in candidates
-        ],
     }
     validate_bundle(bundle)
 
@@ -141,7 +103,7 @@ async def export_corpus(path: Path) -> tuple[int, int]:
     ) as stream:
         json.dump(bundle, stream, ensure_ascii=False, separators=(",", ":"))
     temporary.replace(path)
-    return len(documents), len(candidates)
+    return len(documents)
 
 
 def _document_rows(bundle: dict[str, Any]) -> list[dict[str, Any]]:
@@ -160,28 +122,11 @@ def _document_rows(bundle: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _candidate_rows(bundle: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            **row,
-            "id": _parse_uuid(row["id"], "entity_candidates.id"),
-            "document_id": _parse_uuid(
-                row["document_id"], "entity_candidates.document_id"
-            ),
-            "created_at": _parse_datetime(
-                row["created_at"], "entity_candidates.created_at"
-            ),
-        }
-        for row in bundle["entity_candidates"]
-    ]
-
-
-async def import_corpus(path: Path) -> tuple[int, int]:
+async def import_corpus(path: Path) -> int:
     with _open_text(path, "rt") as stream:
         bundle = validate_bundle(json.load(stream))
 
     document_rows = _document_rows(bundle)
-    candidate_rows = _candidate_rows(bundle)
 
     async with AsyncSessionFactory.begin() as session:
         if document_rows:
@@ -196,19 +141,6 @@ async def import_corpus(path: Path) -> tuple[int, int]:
                     },
                 )
             )
-        if candidate_rows:
-            statement = insert(EntityCandidate).values(candidate_rows)
-            await session.execute(
-                statement.on_conflict_do_update(
-                    index_elements=[EntityCandidate.id],
-                    set_={
-                        column.name: getattr(statement.excluded, column.name)
-                        for column in EntityCandidate.__table__.columns
-                        if column.name != "id"
-                    },
-                )
-            )
-
     async with AsyncSessionFactory() as session:
         document_count = int(
             (
@@ -217,14 +149,7 @@ async def import_corpus(path: Path) -> tuple[int, int]:
                 )
             ).scalar_one()
         )
-        candidate_count = int(
-            (
-                await session.execute(
-                    select(func.count()).select_from(EntityCandidate)
-                )
-            ).scalar_one()
-        )
-    return document_count, candidate_count
+    return document_count
 
 
 def parse_args() -> argparse.Namespace:
@@ -245,14 +170,12 @@ async def main() -> None:
     args = parse_args()
     try:
         if args.command == "export":
-            documents, candidates = await export_corpus(args.output)
+            documents = await export_corpus(args.output)
             print(f"Documents exported       : {documents}")
-            print(f"Entity candidates exported: {candidates}")
             return
 
-        documents, candidates = await import_corpus(args.input)
+        documents = await import_corpus(args.input)
         print(f"Documents in database       : {documents}")
-        print(f"Entity candidates in database: {candidates}")
     finally:
         await close_db()
 

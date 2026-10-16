@@ -27,7 +27,6 @@ class RerankedChunk:
     bm25_rank: int | None
     bm25_score: float | None
 
-    entity_rank: int | None
 
     document_id: str
     chunk_index: int
@@ -38,9 +37,6 @@ class RerankedChunk:
     source_name: str
     source_url: str
 
-    entities: list[str]
-    entity_types: list[str]
-    primary_entities: list[str]
     cross_encoder_score: float | None = None
 
 
@@ -166,16 +162,12 @@ class TravelReranker:
                     dense_score=candidate.dense_score,
                     bm25_rank=candidate.bm25_rank,
                     bm25_score=candidate.bm25_score,
-                    entity_rank=candidate.entity_rank,
                     document_id=candidate.document_id,
                     chunk_index=candidate.chunk_index,
                     title=candidate.title,
                     content=candidate.content,
                     source_name=candidate.source_name,
                     source_url=candidate.source_url,
-                    entities=candidate.entities,
-                    entity_types=candidate.entity_types,
-                    primary_entities=candidate.primary_entities,
                     cross_encoder_score=float(scores[candidate_index]) if scores is not None else None,
                 )
             )

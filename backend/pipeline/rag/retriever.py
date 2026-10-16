@@ -23,9 +23,6 @@ class RetrievedChunk:
     source_name: str
     source_url: str
 
-    entities: list[str]
-    entity_types: list[str]
-    primary_entities: list[str]
 
     payload: dict[str, Any]
 
@@ -107,9 +104,6 @@ class DenseRetriever:
                     content=str(payload.get("content", "")),
                     source_name=str(payload.get("source_name", "")),
                     source_url=str(payload.get("source_url", "")),
-                    entities=list(payload.get("entities", [])),
-                    entity_types=list(payload.get("entity_types", [])),
-                    primary_entities=list(payload.get("primary_entities", [])),
                     payload=payload,
                 )
             )
