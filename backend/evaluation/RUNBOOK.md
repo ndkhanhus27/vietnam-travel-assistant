@@ -1,19 +1,22 @@
-# Hướng dẫn đánh giá
+# Evaluation Runbook
 
-## Điều kiện
+## Prerequisites
 
-Chạy tại `D:\abc\backend`, dùng Python từ `.venv`. Qdrant phải hoạt động và có
-corpus đã gán nhãn. Cấu hình model, API key và kết nối trong `backend/.env`;
-không đưa key vào báo cáo hoặc Git. Giữ dataset, corpus và cấu hình cố định
-trong mỗi lượt đánh giá.
+Run from `D:\abc\backend`, using Python from `.venv`. Qdrant must be running
+with a labeled corpus. The current version uses an entity-free collection;
+set `QDRANT_COLLECTION=travel_chunks_no_entity_20261016` before running.
+Configure models, API keys, and connections in `backend/.env`; never include
+keys in reports or Git. Keep the dataset, corpus, and configuration fixed
+throughout each evaluation run.
 
-## Các bước chạy
+## Execution
 
-Chạy từng lệnh; chỉ chuyển bước khi bước trước đã hoàn tất.
+Run each command separately; proceed only after the previous step completes.
 
 ```powershell
 cd D:\abc\backend
 $env:PYTHONIOENCODING = "utf-8"
+$env:QDRANT_COLLECTION = "travel_chunks_no_entity_20261016"
 $tag = Get-Date -Format "yyyyMMdd_HHmmss"
 $workflow = "evaluation/reports/workflow_$tag.json"
 $judge = "evaluation/reports/judge_$tag.json"
@@ -24,27 +27,46 @@ $judge = "evaluation/reports/judge_$tag.json"
 ..\.venv\Scripts\python.exe -m evaluation.judge $workflow --output $judge --delay-seconds 5
 ```
 
-- Retrieval benchmark: không gọi Gemini hoặc API du lịch; có thể tải model nếu chưa được cache.
-- Workflow: gọi Gemini và các API công cụ; judge đọc kết quả đã lưu, không chạy lại chatbot.
-- Judge: thông thường một lần gọi Gemini cho mỗi câu; lỗi và thử lại làm tăng số lần gọi.
-- Chỉ đổi cấu hình retrieval: chạy benchmark riêng, không bắt buộc chạy lại workflow.
-  Muốn kết luận chất lượng trả lời với cấu hình mới thì phải chạy lại workflow và judge.
+- Retrieval benchmark: does not call Gemini or travel APIs; may download uncached models.
+- Workflow: calls Gemini and tool APIs. The judge reads saved results without rerunning the chatbot.
+- Judge: normally one Gemini call per case; failures and retries increase the call count.
+- Retrieval-only configuration changes: run the separate benchmark; a workflow rerun is not mandatory.
+  To make claims about answer quality under the new configuration, rerun both workflow and judge.
 
-## Tiếp tục và đọc kết quả
+## Resuming and Interpreting Results
 
-Khi gián đoạn, dùng đúng đường dẫn output và thêm `--resume` vào lệnh workflow
-hoặc judge. Judge bỏ qua câu đã chấm thành công; workflow bỏ qua các câu đã ghi,
-kể cả câu lỗi. Không sửa code, input, model hoặc ngưỡng khi resume. Nếu hết quota,
-chờ quota hồi phục; lỗi định dạng lặp lại cần chẩn đoán trước khi gọi tiếp.
+After an interruption, use the same output path and add `--resume` to the workflow
+or judge command. The judge skips successfully scored cases; the workflow skips
+all recorded cases, including failures. Do not change code, inputs, models, or
+thresholds while resuming. If quota is exhausted, wait for it to recover;
+investigate recurring format errors before making more calls.
 
-Workflow hoàn tất khi có `completed_at` và đủ số câu được chọn. Judge cần
-`judged_cases = selected_cases` và `completed_at`; `quality_pass` cho biết cả bốn
-điểm trung bình có đạt ngưỡng cấu hình hay không, không phải tỷ lệ câu đúng.
+A workflow is complete when `completed_at` is present and all selected cases
+are recorded. The judge requires `judged_cases = selected_cases` and
+`completed_at`. Its `quality_pass` indicates whether all four mean scores meet
+the configured threshold, not the percentage of correct answers.
 
-Recall@5 đo mức thu hồi chunk liên quan; MRR@10 đo thứ hạng chunk đúng đầu tiên.
-Intent/tool metrics đo kế hoạch; success/degraded/error đo vận hành. Judge chấm
-correctness, relevance, groundedness và safety theo thang 1–5, không chấm citation.
-Không gộp số đo retrieval mới thành kết quả end-to-end của workflow cũ.
+Recall@5 measures relevant-chunk recovery; MRR@10 measures the rank of the first
+relevant chunk. Intent/tool metrics measure planning; success/degraded/error
+measure execution. The judge scores correctness, relevance, groundedness, and
+safety on a 1-5 scale, without citation scoring. Do not present new retrieval
+measurements as end-to-end results of an older workflow.
 
-Kết quả hiện có: [Báo cáo đánh giá](reports/report_vi.md). Lưu JSON gốc để đối chiếu;
-không cần chạy lại các lượt đã hoàn tất chỉ để viết báo cáo.
+Current results: [Evaluation report](reports/report_vi.md). Retain the original
+JSON files for auditing; do not rerun completed evaluations merely to write reports.
+
+## Completed Run
+
+Workflow `workflow_no_entity_20261016_233751.json` and judge
+`judge_no_entity_20261016_233751.json` completed all 110 cases on 17 October 2026
+(Vietnam time). The report uses raw retrieval measured within this workflow;
+the separate `retrieval_no_entity_retry.json` benchmark is used only to compare
+rankings. Do not mix latency measurements from the two runs. No rerun is needed
+to produce documentation.
+
+One workflow case (`compound_015`) failed with Gemini 503 and remains in the
+denominator. The judge recorded three transient scoring failures (one 503 and
+two 429 responses), then completed; these are not additional workflow failures.
+Workflow `--resume` also skips saved failed cases. To retry only the failed case,
+use `--case-id compound_015` with a new output path; do not modify or replace
+the original run's metrics. This retry still consumes real provider quota.

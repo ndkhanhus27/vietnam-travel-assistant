@@ -189,15 +189,13 @@ answer tokens.
 ```mermaid
 flowchart TD
     H([Maintainer prepares the corpus]) --> ETL[Crawl and clean documents]
-    ETL --> DB[(PostgreSQL: documents and entity metadata)]
+    ETL --> DB[(PostgreSQL: documents)]
     DB --> IDX[Chunk and embed with BGE-M3]
     IDX --> Q[(Qdrant: derived chunk index)]
     Q --> D[Dense ranking]
     Q --> B[In-memory BM25 ranking]
-    Q --> EN[Entity and title ranking]
     D --> F[Weighted reciprocal rank fusion]
     B --> F
-    EN --> F
     F --> RR[BGE CrossEncoder reranking]
     RR --> COVER[Entity coverage and evidence selection]
     COVER -->|Missing coverage or enrichment requested| WEB[Tavily research]
@@ -205,14 +203,19 @@ flowchart TD
     WEB --> RESULT
 ```
 
-The corpus pipeline includes Wikivoyage crawling, wikitext cleaning, entity
-extraction, and indexing. BGE-M3 produces 1,024-dimensional dense embeddings.
+The corpus pipeline includes Wikivoyage crawling, wikitext cleaning, and
+indexing, without corpus entity extraction. BGE-M3 produces 1,024-dimensional dense embeddings.
 The selected BGE reranker preset uses CPU INT8, 10 reranking candidates,
 a hybrid limit of 12, and a rerank output limit of 6.
 
 PostgreSQL stores users, authentication records, conversations, messages,
 context state, agent runs, and corpus records. Qdrant is a derived index;
 application startup does not import or rebuild the corpus automatically.
+
+Corpus entity metadata is no longer used in retrieval. Place names identified
+from user questions are still used for query splitting and coverage checks.
+See the [entity retirement runbook](deploy/ENTITY-RETIREMENT.md) for the
+non-destructive index transition and deferred database cleanup.
 
 | Redis cache | TTL | Consistency behavior |
 |---|---:|---|
@@ -243,44 +246,51 @@ dedicated prompt-injection guardrail suite are excluded.
 
 ### Measured Results
 
-Local evaluation on **12 October 2026** used 110 questions in 10 categories,
-including 65 retrieval-labeled cases and a corpus of 287 chunks.
-
-**Workflow and judge:** these results belong to the completed mMARCO workflow,
-not a BGE end-to-end rerun.
+Local evaluation completed on **17 October 2026** used 110 questions in 10
+categories, including 65 retrieval-labeled cases and 287 chunks. The workflow
+used Gemini 3.5 Flash Lite and BGE reranking, without corpus entity extraction.
+Reasoner and synthesizer remain separate LLM calls.
 
 | Metric | Result |
 |---|---:|
-| Intent accuracy | 91.82% |
+| Intent accuracy | 90.91% |
 | Retrieval-mode accuracy | 95.45% |
-| Tool exact match | 95.45% |
-| Tool precision / recall / F1 | 98.23% / 95.69% / 96.94% |
+| Tool exact match | 94.55% |
+| Tool precision / recall / F1 | 97.35% / 94.83% / 96.07% |
 | Workflow success, including degraded answers | 97.27% |
-| Degraded / error rate | 31.82% / 0.00% |
-| Workflow latency P50 / P95 | 11.30 / 23.97 s |
-| Judge correctness / relevance | 4.65 / 4.63 out of 5 |
-| Judge groundedness / safety | 4.81 / 5.00 out of 5 |
+| Degraded / error rate | 36.36% / 0.91% |
+| Workflow latency P50 / P95 | 38.81 / 64.37 s |
+| Judge correctness / relevance | 4.57 / 4.59 out of 5 |
+| Judge groundedness / safety | 4.78 / 5.00 out of 5 |
 
-The judge completed 110/110 cases. All four mean scores exceeded the configured
-3.5/5 threshold. Workflow success measures execution, not factual correctness.
+The judge completed 110/110 cases; all four mean scores exceeded 3.5/5.
+The workflow retains one Gemini 503 failure (`compound_015`); it is not
+excluded from the reported metrics. Degraded answers can also count as successful.
+All 12 current-information cases and 11/15 compound cases were degraded.
+These results are not a claim of production readiness.
 
-**Separate retrieval benchmark:** original dataset queries, before tool-level
-filtering and evidence aggregation, with no live Gemini calls.
+**Raw retrieval measured within the same workflow run:** original dataset
+queries before tool filtering and evidence aggregation. This ranking step
+does not call Gemini or travel APIs.
 
 | Method | Recall@5 | MRR@10 | Retrieval latency P50 |
 |---|---:|---:|---:|
-| Dense | 66.92% | 0.5536 | 0.236 s |
-| Hybrid | 77.69% | 0.6221 | 0.195 s |
-| Hybrid + BGE Reranker | **82.31%** | 0.6189 | 8.455 s |
+| Dense | 66.92% | 0.5536 | 0.311 s |
+| Hybrid (dense + BM25) | 74.62% | 0.5778 | 0.261 s |
+| Hybrid + BGE Reranker | **83.08%** | 0.6173 | 12.685 s |
 
-All three methods completed 65 cases with zero errors. BGE improved Recall@5
-by 4.62 percentage points over Hybrid, with slightly lower MRR@10 and substantially
-higher latency. Retrieval timings exclude model initialization and do not
-represent end-to-end response time.
+All three methods completed 65 cases with zero retrieval errors. Compared with
+the historical BGE/entity benchmark, final Recall@5 rose from 82.31% to 83.08%
+while MRR@10 changed from 0.6189 to 0.6173. This small difference is not evidence
+of a statistically significant improvement. Plain hybrid retrieval regressed
+from 77.69% to 74.62%. Retrieval timings exclude model initialization; local
+hardware load and provider conditions limit latency comparisons. The old
+end-to-end run used mMARCO, so its differences cannot be attributed solely
+to entity removal.
 
 See the [measured report](backend/evaluation/reports/report_vi.md) and
 [evaluation commands](backend/evaluation/RUNBOOK.md) for source report names
-and resume instructions. These supporting documents are currently in Vietnamese.
+and resume instructions. Both supporting documents are in English.
 
 ## 6. Running and Deployment
 

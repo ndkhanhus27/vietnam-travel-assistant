@@ -74,8 +74,9 @@ docker compose --env-file .env.production -f docker-compose.prod.yml run --rm ba
   python -m pipeline.rag.index_documents --recreate
 ```
 
-The bundle contains only `documents` and `entity_candidates`, preserves their
-UUIDs, and imports idempotently. Transfer it to the server through a protected
+The v2 bundle contains only `documents`, preserves their UUIDs, and imports
+idempotently. Legacy v1 bundles remain importable; their entity rows are ignored.
+Transfer it to the server through a protected
 administrative channel; never commit it. Do not use `host.docker.internal` or
 a developer database for production reindexing.
 
@@ -264,15 +265,14 @@ docker compose --env-file .deploy.env --env-file .env.production \
   -f docker-compose.prod.yml exec -T postgres sh -lc \
   'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
   "SELECT '\''documents='\'' || count(*) FROM documents
-   UNION ALL
-   SELECT '\''entity_candidates='\'' || count(*) FROM entity_candidates;"'
+   ;"'
 
 docker compose --env-file .deploy.env --env-file .env.production \
   -f docker-compose.prod.yml exec -T backend python -c \
   'from app.core.config import settings; from qdrant_client import QdrantClient; c=QdrantClient(url=settings.qdrant_url); i=c.get_collection(settings.qdrant_collection); v=i.config.params.vectors; print(f"collection={settings.qdrant_collection} points={i.points_count} vector_size={v.size} distance={v.distance}")'
 ```
 
-The recorded corpus baseline is `documents=84`, `entity_candidates=1843`, and
+The recorded corpus baseline is `documents=84` and
 `collection=travel_chunks points=287 vector_size=1024 distance=Cosine`.
 Compare with the validated bundle being imported; later corpora may differ.
 Do not recreate an existing production index during a routine deploy.

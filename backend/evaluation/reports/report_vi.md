@@ -1,61 +1,94 @@
-# Báo cáo đánh giá Vietnam Travel Advisor
+# Vietnam Travel Advisor Evaluation Report
 
-## Phạm vi và phương pháp
+## Scope and Configuration
 
-Đánh giá ngày 12/10/2026 trên Windows local, gồm 110 câu thuộc 10 nhóm;
-65 câu có nhãn truy xuất, 45 câu không yêu cầu RAG. Corpus gồm 287 chunks.
-Workflow sử dụng Gemini 3.5 Flash Lite và reranker mMARCO. Benchmark truy xuất
-BGE được chạy riêng trên cùng dataset; không thay thế kết quả workflow cũ.
+The workflow ran from 23:37 on 16 October to 01:33 on 17 October 2026;
+judging completed at 02:39 on 17 October 2026 (Vietnam time).
+Evaluation ran locally on Windows: 110 questions in 10 categories,
+including 65 retrieval-labeled cases and 45 non-RAG cases; the corpus contains 287 chunks.
 
-## Kết quả workflow và chất lượng trả lời
+Configuration: Gemini 3.5 Flash Lite; dense BGE-M3 + title/content BM25,
+weighted RRF, and `BAAI/bge-reranker-v2-m3` with CPU INT8, 10 candidates,
+hybrid limit 12, and rerank limit 6. Collection: `travel_chunks_no_entity_20261016`.
+Corpus-extracted entities are not used; place names identified from user queries
+are retained. Reasoner and synthesizer remain separate LLM stages.
 
-| Chỉ số | Kết quả |
+## Workflow and Answer Quality
+
+| Metric | Result |
 |---|---:|
-| Intent accuracy | 91,82% |
-| Retrieval-mode accuracy | 95,45% |
-| Tool-set exact match | 95,45% |
-| Tool precision / recall / F1 | 98,23% / 95,69% / 96,94% |
-| Workflow success (bao gồm degraded) | 97,27% |
-| Degraded / error | 31,82% / 0,00% |
-| Latency P50 / P95 | 11,30 / 23,97 giây |
-| Judge: correctness | 4,65/5 |
-| Judge: relevance | 4,63/5 |
-| Judge: groundedness | 4,81/5 |
-| Judge: safety | 5,00/5 |
+| Intent accuracy | 90.91% |
+| Retrieval-mode accuracy | 95.45% |
+| Tool-set exact match | 94.55% |
+| Tool precision / recall / F1 | 97.35% / 94.83% / 96.07% |
+| Workflow success, including degraded answers | 97.27% (107/110) |
+| Degraded | 36.36% (40/110) |
+| Error | 0.91% (1/110) |
+| Workflow latency P50 / P95 | 38.81 / 64.37 s |
+| Judge: correctness / relevance | 4.57 / 4.59 out of 5 |
+| Judge: groundedness / safety | 4.78 / 5.00 out of 5 |
 
-Judge hoàn tất 110/110 câu; cả bốn điểm trung bình đạt ngưỡng 3,5/5.
-Hai lần lỗi định dạng tại `routing_009` đã được ghi nhận; lượt chấm cuối hoàn tất.
-Workflow success phản ánh vận hành, không đồng nghĩa với độ chính xác nội dung.
+The judge completed 110/110 cases; all four mean scores met the 3.5/5 threshold.
+Success and degraded are not mutually exclusive; success does not imply complete
+factual correctness. The two unsuccessful cases other than the 503 failure also
+remain in the denominator of 110.
 
-## Kết quả truy xuất riêng
+Case `compound_015` failed with Gemini 503 due to model overload and is retained
+in the results. The judge recorded one 503 at `routing_004` and two 429 responses
+at `compound_007`, then completed. Transient judging failures are not counted
+as additional workflow failures. All 12 current_info cases and 11/15 compound
+cases were degraded. These remain priority limitations, not resolved issues.
 
-| Phương pháp | Recall@5 | MRR@10 | Latency P50 |
+## Retrieval Within the Same Workflow Run
+
+| Method | Recall@5 | MRR@10 | Latency P50 |
 |---|---:|---:|---:|
-| Dense | 66,92% | 0,5536 | 0,236 giây |
-| Hybrid | 77,69% | 0,6221 | 0,195 giây |
-| Hybrid + BGE Reranker | 82,31% | 0,6189 | 8,455 giây |
+| Dense | 66.92% | 0.5536 | 0.311 s |
+| Hybrid: Dense + BM25 | 74.62% | 0.5778 | 0.261 s |
+| Hybrid + BGE Reranker | 83.08% | 0.6173 | 12.685 s |
 
-Cả ba phương pháp đánh giá trên 65 câu, không có lỗi. BGE dùng
-`BAAI/bge-reranker-v2-m3`, CPU INT8, 10 ứng viên và hybrid limit 12.
-Recall@5 tăng 4,62 điểm phần trăm so với Hybrid, trong khi MRR@10 giảm nhẹ.
-Độ trễ truy xuất không gồm khởi tạo mô hình và không phải độ trễ toàn hệ thống.
+Each method was measured on 65 cases with zero retrieval errors. These are raw
+rankings using original queries, before tool filtering and evidence aggregation;
+the ranking measurement does not call Gemini. Timings exclude model initialization
+and pacing delays; they are not end-to-end system latency.
 
-## Kết luận và giới hạn
+The workflow's final-evidence proxy is Recall@5 = 36.15%, MRR@10 = 0.4000.
+This measures the chunk list remaining after workflow processing, not raw retrieval.
 
-BGE cải thiện khả năng thu hồi tài liệu liên quan trong top 5 nhưng tăng độ trễ.
-Cần ưu tiên giảm degraded, đặc biệt nhóm thông tin hiện thời (12/12 câu) và
-câu hỏi kết hợp (12/15 câu). Chưa đánh giá lại toàn bộ workflow với BGE.
+## Comparison and Interpretation
 
-Judge dùng cùng model với chatbot trong phạm vi dự án cá nhân; điểm có thể chịu
-thiên lệch chung, chưa được kiểm chứng độc lập bởi con người. Điểm safety không
-thay thế kiểm thử bảo mật hoặc prompt injection. Không chấm citation; không chạy
-bộ guardrail riêng. Dataset hữu hạn, chưa chứng minh khả năng tổng quát hóa;
-Recall/MRR phụ thuộc nhãn chunk. Kết quả không phải kiểm thử tải hay giao diện.
+Compared with the 12 October BGE benchmark using corpus entities, final Recall@5
+increased from 82.31% to 83.08% (+0.77 percentage points), while MRR@10 decreased
+slightly from 0.6189 to 0.6173. Hybrid without reranking decreased from 77.69%
+to 74.62%. This small difference on a finite dataset does not establish a
+statistically significant improvement.
 
-## Dữ liệu đối chiếu
+The old workflow used mMARCO; the new workflow uses BGE and removes corpus
+entities, so this is not a single-factor experiment. Success remains 97.27%;
+degraded increased from 31.82% to 36.36%, and latency P50/P95 increased from
+11.30/23.97 to 38.81/64.37 s. Do not attribute all changes to entity removal;
+models, external APIs, retries, and local machine load also affect the results.
 
-- Workflow: `full_20261012_203925.json`.
-- Judge của workflow trên: `judge_full_20261012_203925.json`.
-- Benchmark truy xuất BGE: `retrieval_bge_20261012_220440.json`.
+The separate `retrieval_no_entity_retry.json` benchmark has the same aggregate
+Recall/MRR, but records collection `travel_chunks`, not the workflow's collection
+name. The new code ignores corpus entity metadata even in the old collection.
+This report uses raw retrieval measured within the new workflow to avoid mixing
+metadata and latency from different runs.
 
-Các JSON gốc được lưu tại `backend/evaluation/reports/`, không đưa vào Git.
+## Limitations and Source Reports
+
+The judge uses the same Gemini 3.5 Flash Lite model as the chatbot within a
+personal-project scope; shared biases are possible, and there is no independent
+human verification. Citation scoring and a dedicated guardrail suite are excluded.
+Safety scores do not replace security testing. The dataset and chunk labels are
+finite; these results do not establish generalization, concurrent-load capacity,
+or UI quality. Local evaluation does not verify the version deployed on EC2.
+
+- Workflow and raw retrieval: `workflow_no_entity_20261016_233751.json`.
+- Judge for that workflow: `judge_no_entity_20261016_233751.json`; the source SHA-256 was verified to match.
+- Separate benchmark: `retrieval_no_entity_retry.json`.
+- Historical baseline: `full_20261012_203925.json`,
+  `judge_full_20261012_203925.json`, `retrieval_bge_20261012_220440.json`.
+
+Original JSON reports remain local in `backend/evaluation/reports/`, outside Git.
+Do not delete failed-run reports or rejudge to replace a published run's metrics.
