@@ -111,12 +111,12 @@ export function TravelChatPage() {
     return () => { active = false; };
   }, [handleApiError, loadConversations, t]);
 
-  const loadHistory = useCallback(async (id: string) => {
+  const loadHistory = useCallback(async (id: string, options: { preserveError?: boolean } = {}) => {
     setHistoryLoading(true);
     try {
       const history = await api.getMessages(id);
       setMessages(sortMessages(history));
-      setPageError("");
+      if (!options.preserveError) setPageError("");
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 404) {
         setConversations((current) => current.filter((item) => item.id !== id));
@@ -131,12 +131,13 @@ export function TravelChatPage() {
   useEffect(() => {
     setActiveMenu(null);
     setUserMenuOpen(false);
-    setPageError("");
     if (!conversationId) {
+      setPageError("");
       setMessages([]);
       return;
     }
     if (consumePendingConversationNavigation(pendingConversationNavigation, conversationId)) return;
+    setPageError("");
     setMessages([]);
     void (async () => {
       if (!conversations.some((item) => item.id === conversationId)) {
@@ -214,13 +215,13 @@ export function TravelChatPage() {
       });
       if (streamError) {
         setPageError(streamError);
-        await loadHistory(id);
+        await loadHistory(id, { preserveError: true });
       } else {
         await loadConversations();
       }
     } catch (cause) {
       handleApiError(cause, t("Kết nối bị gián đoạn. Lịch sử trò chuyện đã được cập nhật lại.", "The connection was interrupted. Conversation history has been refreshed."));
-      if (id) await loadHistory(id);
+      if (id) await loadHistory(id, { preserveError: true });
     } finally {
       setProgress(null);
       setSending(false);
