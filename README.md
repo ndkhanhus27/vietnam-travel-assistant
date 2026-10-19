@@ -19,7 +19,7 @@ a FastAPI backend, and a bounded LangGraph workflow.
 
 ## Live Demo
 
-[Open live demo](https://vietnam-travel-advisor.duckdns.org)
+[Open live demo](https://vietnam-travel-advisor.duckdns.org) (Available daily from 8:00 AM to 11:00 AM, GMT+7)
 
 <!-- Asset and link setup: see assets/README.md. -->
 
@@ -58,17 +58,17 @@ The planner assigns a primary intent while decomposing additional requirements
 into tool-specific subtasks. Intent labels are routing categories, not separate
 autonomous agents. Budget calculation is not an implemented capability.
 
-| Intent | Purpose | Example user request |
-|---|---|---|
-| `FACTUAL_TRAVEL` | Retrieve travel knowledge | “Đà Lạt có gì nổi bật?” |
-| `RECOMMENDATION` | Suggest destinations or experiences | “Ở Huế buổi tối nên đi đâu?” |
-| `COMPARISON` | Compare travel options | “Huế hay Hội An hợp đi 2 ngày hơn?” |
-| `ITINERARY` | Organize a day-by-day trip | “Lên lịch trình Huế 3 ngày.” |
-| `WEATHER` | Obtain weather observations or forecasts | “Huế cuối tuần có mưa không?” |
-| `ROUTING` | Estimate routes, distance, and duration | “Từ Đại Nội đến lăng Khải Định bao xa?” |
-| `CURRENT_INFO` | Search changing travel information | “Huế hiện có sự kiện gì?” |
-| `GENERAL` | Handle conversational requests | “Bạn làm được gì?” |
-| `OUT_OF_SCOPE` | Redirect non-travel requests | “Viết code Java cho tôi.” |
+| Intent           | Purpose                                  | Example user request                    |
+| ---------------- | ---------------------------------------- | --------------------------------------- |
+| `FACTUAL_TRAVEL` | Retrieve travel knowledge                | “Đà Lạt có gì nổi bật?”                 |
+| `RECOMMENDATION` | Suggest destinations or experiences      | “Ở Huế buổi tối nên đi đâu?”            |
+| `COMPARISON`     | Compare travel options                   | “Huế hay Hội An hợp đi 2 ngày hơn?”     |
+| `ITINERARY`      | Organize a day-by-day trip               | “Lên lịch trình Huế 3 ngày.”            |
+| `WEATHER`        | Obtain weather observations or forecasts | “Huế cuối tuần có mưa không?”           |
+| `ROUTING`        | Estimate routes, distance, and duration  | “Từ Đại Nội đến lăng Khải Định bao xa?” |
+| `CURRENT_INFO`   | Search changing travel information       | “Huế hiện có sự kiện gì?”               |
+| `GENERAL`        | Handle conversational requests           | “Bạn làm được gì?”                      |
+| `OUT_OF_SCOPE`   | Redirect non-travel requests             | “Viết code Java cho tôi.”               |
 
 The interface supports authentication, conversation history, Markdown answers,
 source links, answer feedback, and execution progress. Administration exposes
@@ -80,14 +80,14 @@ status; it does not provide a conversation-content inspection endpoint.
 Both sign-in methods support Gmail addresses; the backend enforces the
 `@gmail.com` domain policy.
 
-| Feature | Implemented behavior |
-|---|---|
-| Gmail + password | Register at `/register` with password confirmation; sign in at `/login`. Passwords are hashed with Argon2id. |
-| Google sign-in | Google Identity Services supplies an ID token verified by the backend. A new identity creates an account; an existing linked identity signs in. |
-| Account linking | If a Google email matches an existing unlinked account, the user must confirm that account's current local password before linking. |
-| Forgot password | `/forgot-password` requests an email recovery link for an active account with a local password. The response does not reveal whether the account exists. |
-| Reset password | `/reset-password` accepts a single-use token and matching new passwords. The default expiry is 20 minutes; invalid, expired, or used tokens are rejected. |
-| Account settings | Show linked sign-in methods. Local-password changes use the same email recovery flow; Google-only passwords are managed through Google. |
+| Feature          | Implemented behavior                                                                                                                                      |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Gmail + password | Register at `/register` with password confirmation; sign in at `/login`. Passwords are hashed with Argon2id.                                              |
+| Google sign-in   | Google Identity Services supplies an ID token verified by the backend. A new identity creates an account; an existing linked identity signs in.           |
+| Account linking  | If a Google email matches an existing unlinked account, the user must confirm that account's current local password before linking.                       |
+| Forgot password  | `/forgot-password` requests an email recovery link for an active account with a local password. The response does not reveal whether the account exists.  |
+| Reset password   | `/reset-password` accepts a single-use token and matching new passwords. The default expiry is 20 minutes; invalid, expired, or used tokens are rejected. |
+| Account settings | Show linked sign-in methods. Local-password changes use the same email recovery flow; Google-only passwords are managed through Google.                   |
 
 A successful reset invalidates outstanding recovery tokens and existing app
 sessions; the user signs in again. Google-only accounts do not receive a local
@@ -119,16 +119,16 @@ flowchart TD
     K --> Q[(Qdrant)]
 ```
 
-| Layer | Implementation |
-|---|---|
-| Interface | React, TypeScript, Vite, React Router |
-| API and persistence | FastAPI, Pydantic, SQLAlchemy, asyncpg, Alembic |
-| Agent | LangGraph, Gemini, structured execution plans |
-| Retrieval | BGE-M3 dense embeddings, BM25, entity/title signals, weighted RRF, CrossEncoder |
-| External data | OpenWeather, Goong, Tavily |
-| Cache and rate limiting | Redis |
-| Evaluation tracing | LangSmith-traced judge |
-| Delivery | Docker Compose, Caddy, Nginx, GitHub Actions, GHCR |
+| Layer                   | Implementation                                                                  |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| Interface               | React, TypeScript, Vite, React Router                                           |
+| API and persistence     | FastAPI, Pydantic, SQLAlchemy, asyncpg, Alembic                                 |
+| Agent                   | LangGraph, Gemini, structured execution plans                                   |
+| Retrieval               | BGE-M3 dense embeddings, BM25, entity/title signals, weighted RRF, CrossEncoder |
+| External data           | OpenWeather, Goong, Tavily                                                      |
+| Cache and rate limiting | Redis                                                                           |
+| Evaluation tracing      | LangSmith-traced judge                                                          |
+| Delivery                | Docker Compose, Caddy, Nginx, GitHub Actions, GHCR                              |
 
 The active chat workflow dispatches tools directly through
 `pipeline.agents.tools.registry.ToolRegistry`. It does not require a separate
@@ -163,14 +163,14 @@ retry; it does not implement unrestricted replanning. Direct-answer requests
 can have an empty tool plan and still pass through the downstream nodes.
 Clarification ends the current invocation without executing tools.
 
-| Tool | Role | Source |
-|---|---|---|
-| `search_travel_knowledge` | Travel evidence and coverage checks | Qdrant, local retrieval models; Tavily fallback/enrichment |
-| `web_search` | Current information | Tavily |
-| `weather` | Current weather and supported forecast dates | OpenWeather |
-| `map_location` | Geocoding and location lookup | Goong |
-| `routing` | Route geometry, distance, and duration | Goong |
-| `distance_matrix` | Travel estimates between multiple points | Goong |
+| Tool                      | Role                                         | Source                                                     |
+| ------------------------- | -------------------------------------------- | ---------------------------------------------------------- |
+| `search_travel_knowledge` | Travel evidence and coverage checks          | Qdrant, local retrieval models; Tavily fallback/enrichment |
+| `web_search`              | Current information                          | Tavily                                                     |
+| `weather`                 | Current weather and supported forecast dates | OpenWeather                                                |
+| `map_location`            | Geocoding and location lookup                | Goong                                                      |
+| `routing`                 | Route geometry, distance, and duration       | Goong                                                      |
+| `distance_matrix`         | Travel estimates between multiple points     | Goong                                                      |
 
 For a compound itinerary/weather/event/route question, the plan can contain
 separate knowledge, weather, web, and routing tasks. Data availability and
@@ -217,11 +217,11 @@ from user questions are still used for query splitting and coverage checks.
 See the [entity retirement runbook](deploy/ENTITY-RETIREMENT.md) for the
 non-destructive index transition and deferred database cleanup.
 
-| Redis cache | TTL | Consistency behavior |
-|---|---:|---|
-| Successful weather results | 30 minutes | Keys include normalized request parameters |
-| Shared Goong geocoding results | 24 hours | Reused across location and route tools |
-| Conversation context | 30 minutes | Owner-scoped key; activity-version validation |
+| Redis cache                    |        TTL | Consistency behavior                          |
+| ------------------------------ | ---------: | --------------------------------------------- |
+| Successful weather results     | 30 minutes | Keys include normalized request parameters    |
+| Shared Goong geocoding results |   24 hours | Reused across location and route tools        |
+| Conversation context           | 30 minutes | Owner-scoped key; activity-version validation |
 
 Conversation ownership is checked in PostgreSQL even on a context-cache hit.
 Context is invalidated after committing a user message and refreshed after a
@@ -230,14 +230,14 @@ supports request rate limiting.
 
 ## 5. Testing and Evaluation
 
-| Level | Coverage | LLM policy |
-|---|---|---|
-| Backend unit | Nodes, tools, validation, evaluation helpers | Mocked |
-| Integration and contract | Graph branches, state, persistence, API boundaries | Mocked |
-| Frontend | Components, Markdown, connection and SSE handling | Mocked responses |
-| Browser E2E | Authentication, chat lifecycle, feedback, responsive layout | Mocked agent workflow |
-| Golden evaluation | Planning, tool selection, retrieval, completion, latency | Real Gemini |
-| Answer judging | Correctness, relevance, groundedness, safety | Real Gemini |
+| Level                    | Coverage                                                    | LLM policy            |
+| ------------------------ | ----------------------------------------------------------- | --------------------- |
+| Backend unit             | Nodes, tools, validation, evaluation helpers                | Mocked                |
+| Integration and contract | Graph branches, state, persistence, API boundaries          | Mocked                |
+| Frontend                 | Components, Markdown, connection and SSE handling           | Mocked responses      |
+| Browser E2E              | Authentication, chat lifecycle, feedback, responsive layout | Mocked agent workflow |
+| Golden evaluation        | Planning, tool selection, retrieval, completion, latency    | Real Gemini           |
+| Answer judging           | Correctness, relevance, groundedness, safety                | Real Gemini           |
 
 Normal CI does not call live LLMs. The staging workflow selects the first
 50 approved dataset cases and runs a LangSmith-traced judge; this is a subset,
@@ -251,17 +251,17 @@ categories, including 65 retrieval-labeled cases and 287 chunks. The workflow
 used Gemini 3.5 Flash Lite and BGE reranking, without corpus entity extraction.
 Reasoner and synthesizer remain separate LLM calls.
 
-| Metric | Result |
-|---|---:|
-| Intent accuracy | 90.91% |
-| Retrieval-mode accuracy | 95.45% |
-| Tool exact match | 94.55% |
-| Tool precision / recall / F1 | 97.35% / 94.83% / 96.07% |
-| Workflow success, including degraded answers | 97.27% |
-| Degraded / error rate | 36.36% / 0.91% |
-| Workflow latency P50 / P95 | 38.81 / 64.37 s |
-| Judge correctness / relevance | 4.57 / 4.59 out of 5 |
-| Judge groundedness / safety | 4.78 / 5.00 out of 5 |
+| Metric                                       |                   Result |
+| -------------------------------------------- | -----------------------: |
+| Intent accuracy                              |                   90.91% |
+| Retrieval-mode accuracy                      |                   95.45% |
+| Tool exact match                             |                   94.55% |
+| Tool precision / recall / F1                 | 97.35% / 94.83% / 96.07% |
+| Workflow success, including degraded answers |                   97.27% |
+| Degraded / error rate                        |           36.36% / 0.91% |
+| Workflow latency P50 / P95                   |          38.81 / 64.37 s |
+| Judge correctness / relevance                |     4.57 / 4.59 out of 5 |
+| Judge groundedness / safety                  |     4.78 / 5.00 out of 5 |
 
 The judge completed 110/110 cases; all four mean scores exceeded 3.5/5.
 The workflow retains one Gemini 503 failure (`compound_015`); it is not
@@ -273,11 +273,11 @@ These results are not a claim of production readiness.
 queries before tool filtering and evidence aggregation. This ranking step
 does not call Gemini or travel APIs.
 
-| Method | Recall@5 | MRR@10 | Retrieval latency P50 |
-|---|---:|---:|---:|
-| Dense | 66.92% | 0.5536 | 0.311 s |
-| Hybrid (dense + BM25) | 74.62% | 0.5778 | 0.261 s |
-| Hybrid + BGE Reranker | **83.08%** | 0.6173 | 12.685 s |
+| Method                |   Recall@5 | MRR@10 | Retrieval latency P50 |
+| --------------------- | ---------: | -----: | --------------------: |
+| Dense                 |     66.92% | 0.5536 |               0.311 s |
+| Hybrid (dense + BM25) |     74.62% | 0.5778 |               0.261 s |
+| Hybrid + BGE Reranker | **83.08%** | 0.6173 |              12.685 s |
 
 All three methods completed 65 cases with zero retrieval errors. Compared with
 the historical BGE/entity benchmark, final Recall@5 rose from 82.31% to 83.08%
@@ -364,13 +364,13 @@ latency, and adding independently reviewed and multi-turn evaluation cases.
 
 ## Repository Guide
 
-| Path | Contents |
-|---|---|
-| `backend/app/` | API, auth, persistence, cache, services |
-| `backend/pipeline/agents/` | Planner, executor, validator, reasoner, synthesizer |
-| `backend/pipeline/rag/` | Chunking, embedding, retrieval, reranking, indexing |
-| `backend/pipeline/crawlers/`, `etl/`, `entity/` | Corpus preparation |
-| `backend/evaluation/` | Dataset, benchmark, workflow evaluation, judge |
-| `backend/tests/`, `frontend/e2e/` | Backend and browser tests |
-| `frontend/src/` | React interface and client-side tests |
-| `deploy/`, `.github/workflows/` | Deployment instructions and automation |
+| Path                                            | Contents                                            |
+| ----------------------------------------------- | --------------------------------------------------- |
+| `backend/app/`                                  | API, auth, persistence, cache, services             |
+| `backend/pipeline/agents/`                      | Planner, executor, validator, reasoner, synthesizer |
+| `backend/pipeline/rag/`                         | Chunking, embedding, retrieval, reranking, indexing |
+| `backend/pipeline/crawlers/`, `etl/`, `entity/` | Corpus preparation                                  |
+| `backend/evaluation/`                           | Dataset, benchmark, workflow evaluation, judge      |
+| `backend/tests/`, `frontend/e2e/`               | Backend and browser tests                           |
+| `frontend/src/`                                 | React interface and client-side tests               |
+| `deploy/`, `.github/workflows/`                 | Deployment instructions and automation              |
